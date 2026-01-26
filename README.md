@@ -27,12 +27,13 @@ Coalmine automatically deploys and monitors "canary tokens" - decoy credentials 
 
 ## Features
 
-- 🔐 **Multi-Cloud Support** - AWS and GCP from a single interface
-- 🔄 **Automatic Rotation** - Credentials rotate on configurable intervals
-- 📊 **Centralized Monitoring** - CloudTrail and GCP Audit Log integration
-- 🚨 **Flexible Alerting** - Email (Working), Webhook(WIP), and Syslog(WIP) notifications
-- 🏗️ **Infrastructure as Code** - OpenTofu-managed resources
-- 🔧 **YAML Configuration** - Easy customization without code changes
+-  **Multi-Cloud Support** - AWS and GCP from a single interface
+-  **Automatic Rotation** - Credentials rotate on configurable intervals
+-  **Centralized Monitoring** - CloudTrail and GCP Audit Log integration
+-  **Flexible Alerting** - Email (Working), Webhook(WIP), and Syslog(WIP) notifications
+-  **Infrastructure as Code** - OpenTofu-managed resources
+-  **YAML Configuration** - Easy customization without code changes
+-  **Cost-Sensitive Logging** - Logging Locations Created For Each Environment Restricted to Canary Items
 
 ## Quick Start
 
@@ -60,23 +61,34 @@ docker compose up -d
 ### 3. Create a Cloud Environment
 
 ```bash
-# AWS Environment
+# AWS Environment - Credential
 docker compose exec app python src/cli.py create-env dev-aws AWS \
   --credentials '{"aws_access_key_id": "...", "aws_secret_access_key": "...", "region": "us-east-1"}'
+
+# AWS Environement - Get ENV_ID
+docker compose exec app python src/cli.py list-envs
+
+#AWS Logging Desitination - Cloudwatch for monitoring events
+e % docker compose exec app python src/cli.py create-log NAME_HERE AWS_CLOUDTRAIL --env ENV_ID_HERE
+
+#AWS Logging Desitination - Get LOGGING-ID
+e % docker compose exec app python src/cli.py list-logs
 
 # GCP Environment  
 docker compose exec app python src/cli.py create-env prod-gcp GCP \
   --credentials '{"type": "service_account", ...}'
 ```
 
+
+
 ### 4. Deploy a Canary
 
 ```bash
 # Create an AWS IAM User canary
-docker compose exec app python src/cli.py create my-canary AWS_IAM_USER --env dev-aws
+docker compose exec app python src/cli.py create my-canary AWS_IAM_USER --env AWS_ENV_ID_HERE --logging-id AWS_LOGGING_ID_HERE
 
 # Create a GCP Service Account canary
-docker compose exec app python src/cli.py create gcp-canary GCP_SERVICE_ACCOUNT --env prod-gcp
+docker compose exec app python src/cli.py create gcp-canary GCP_SERVICE_ACCOUNT --env GCP_ENV_ID_HERE --logging-id GCP_LOGGING_ID_HERE
 ```
 
 ### 5. Verify Detection
