@@ -1,0 +1,42 @@
+# Alert Output Configuration
+# Define enabled output channels here.
+
+outputs:
+  # Example Email Test
+   email_admin:
+     type: "email"
+     enabled: true
+     smtp_host: "host.docker.internal"
+     smtp_port: 1025
+     from_addr: "alerts@example.com"
+     to_addrs: ["admin@example.com"]
+     username: "user"
+     password: "password"
+
+  # Example Email Output
+  # email_admin:
+  #   type: "email"
+  #   enabled: false
+  #   smtp_host: "smtp.example.com"
+  #   smtp_port: 587
+  #   from_addr: "alerts@example.com"
+  #   to_addrs: ["admin@example.com"]
+  #   username: "user"
+  #   password: "password"
+  
+  # Example Webhook (SIEM / Slack / etc)
+  # webhook_siem:
+  #   type: "webhook"
+  #   enabled: false
+  #   url: "https://siem.example.com/ingest"
+  #   headers:
+  #     Authorization: "Bearer token"
+
+  # Example Syslog (UDP)
+  # syslog_local:
+  #   type: "syslog"
+  #   enabled: false
+  #   host: "127.0.0.1" # Or central syslog server
+  #   port: 514
+  #   protocol: "UDP" # or TCP
+  #   facility: "local7"

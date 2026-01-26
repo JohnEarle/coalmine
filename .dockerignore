@@ -1,0 +1,8 @@
+venv/
+.git/
+.pytest_cache/
+tofu_state/
+*.db
+*.pyc
+__pycache__/
+celerybeat-schedule

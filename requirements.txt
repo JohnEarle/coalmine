@@ -1,0 +1,9 @@
+celery[redis]
+sqlalchemy
+psycopg2-binary
+alembic
+python-dotenv
+boto3
+google-cloud-logging
+google-cloud-storage # For GCP SDK if needed
+pyyaml  # For YAML config loading

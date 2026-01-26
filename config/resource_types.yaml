@@ -1,0 +1,46 @@
+# Resource Type Configuration
+# 
+# This file defines all canary resource types and their configurations.
+# To add a new resource type:
+#   1. Add an entry below with the required fields
+#   2. Create the Tofu template in tofu_templates/<template_name>/
+#   3. Restart the worker
+#
+# Note: The template_name defaults to lowercase of the type name (e.g., AWS_BUCKET -> aws_bucket)
+
+resource_types:
+  AWS_BUCKET:
+    description: "S3 bucket canary for detecting unauthorized access"
+    provider: AWS
+    template: aws_bucket  # Optional: defaults to lowercase of type name
+    requires_logging: true
+    
+  AWS_IAM_USER:
+    description: "IAM user canary for detecting credential usage"
+    provider: AWS
+    template: aws_iam_user
+    requires_logging: false
+    
+  GCP_BUCKET:
+    description: "GCS bucket canary for detecting unauthorized access"
+    provider: GCP
+    template: gcp_bucket
+    requires_logging: true
+    
+  GCP_SERVICE_ACCOUNT:
+    description: "Service account canary for detecting unauthorized authentication"
+    provider: GCP
+    template: gcp_service_account
+    requires_logging: true
+
+# Logging Provider Types
+logging_types:
+  AWS_CLOUDTRAIL:
+    description: "AWS CloudTrail for S3 data event logging"
+    provider: AWS
+    template: aws_central_trail
+    
+  GCP_AUDIT_SINK:
+    description: "GCP Cloud Logging sink for audit logs"
+    provider: GCP
+    template: gcp_audit_sink

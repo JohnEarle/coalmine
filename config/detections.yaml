@@ -1,0 +1,52 @@
+# Detection Strategy Configuration
+#
+# This file defines how to detect access to each canary resource type.
+# To add detection for a new resource type:
+#   1. Add an entry below matching the resource type name
+#   2. Choose a strategy: CloudWatchLogsQuery, CloudTrailLookup, or GcpAuditLogQuery
+#   3. Configure the strategy-specific parameters
+#   4. Restart the worker
+
+detections:
+  # AWS S3 Bucket - Uses CloudWatch Logs to query CloudTrail events
+  AWS_BUCKET:
+    strategy: CloudWatchLogsQuery
+    filter_pattern: '{ ($.eventSource = "s3.amazonaws.com") && ($.requestParameters.bucketName = "{resource_id}") && (($.eventName = "GetObject") || ($.eventName = "ListObjects") || ($.eventName = "ListObjectsV2") || ($.eventName = "GetBucketLocation") || ($.eventName = "HeadBucket")) }'
+  
+  # AWS IAM User - Uses CloudTrail LookupEvents API directly
+  AWS_IAM_USER:
+    strategy: CloudTrailLookup
+    lookup_attributes:
+      - Username
+      - ResourceName
+    event_names:
+      - CreateAccessKey
+      - DeleteAccessKey
+      - ConsoleLogin
+      - CreateUser
+      - GetUser
+  
+  # GCP Service Account - Uses Cloud Logging query
+  GCP_SERVICE_ACCOUNT:
+    strategy: GcpAuditLogQuery
+    filter_template: 'timestamp >= "{start_time}" AND timestamp <= "{end_time}" AND (protoPayload.authenticationInfo.principalEmail:"{resource_id}" OR protoPayload.request.name:"{resource_id}" OR protoPayload.response.name:"{resource_id}" OR (protoPayload.serviceName="iam.googleapis.com" AND protoPayload.resourceName:"{resource_id}" AND (protoPayload.methodName:"CreateServiceAccountKey" OR protoPayload.methodName:"DeleteServiceAccountKey")))'
+  
+  # GCP Bucket - Uses Cloud Logging query
+  GCP_BUCKET:
+    strategy: GcpAuditLogQuery
+    filter_template: 'protoPayload.serviceName="storage.googleapis.com" AND protoPayload.resourceName:"{resource_id}" AND timestamp >= "{start_time}" AND timestamp <= "{end_time}" AND protoPayload.methodName=("storage.objects.get" OR "storage.objects.list")'
+
+# Strategy Reference:
+#
+# CloudWatchLogsQuery:
+#   - filter_pattern: CloudWatch Logs filter pattern syntax
+#   - Uses: AWS CloudWatch Logs API
+#
+# CloudTrailLookup:
+#   - lookup_attributes: List of attribute keys to search by
+#   - event_names: List of event names to filter for
+#   - Uses: AWS CloudTrail LookupEvents API
+#
+# GcpAuditLogQuery:
+#   - filter_template: GCP Cloud Logging filter syntax with {resource_id}, {start_time}, {end_time} placeholders
+#   - Uses: GCP Cloud Logging API
