@@ -61,6 +61,8 @@ def create_canary(name: str, resource_type_str: str, interval_seconds: int = 864
             log_res = db.query(LoggingResource).filter(LoggingResource.id == uuid.UUID(logging_resource_id_str)).first()
             if not log_res:
                 raise ValueError(f"Logging Resource {logging_resource_id_str} not found")
+            if log_res.status != ResourceStatus.ACTIVE:
+                raise ValueError(f"Logging Resource {log_res.name} is not HEALTHY (Status: {log_res.status}). Cannot use for new canary.")
 
         # For AWS Buckets, enforce Logging Resource
         if resource_type == ResourceType.AWS_BUCKET and not log_res:
@@ -120,6 +122,10 @@ def create_canary(name: str, resource_type_str: str, interval_seconds: int = 864
         env_conf = env_obj.config.copy() if (env_obj and env_obj.config) else {}
         if env_obj and env_obj.credentials and "project_id" in env_obj.credentials and "project_id" not in env_conf:
              env_conf["project_id"] = env_obj.credentials["project_id"]
+
+        # Ensure project_id is passed if available in environment (extracted by helpers)
+        if "project_id" not in env_conf and "GOOGLE_CLOUD_PROJECT" in exec_env:
+             env_conf["project_id"] = exec_env["GOOGLE_CLOUD_PROJECT"]
 
         vars_dict = handler.get_tform_vars(physical_name, env_conf, module_params)
         
@@ -275,6 +281,10 @@ def rotate_canary(resource_id_str: str, new_name: str = None):
         env_conf = env_obj.config.copy() if (env_obj and env_obj.config) else {}
         if env_obj and env_obj.credentials and "project_id" in env_obj.credentials and "project_id" not in env_conf:
              env_conf["project_id"] = env_obj.credentials["project_id"]
+        
+        # Ensure project_id is passed if available in environment
+        if "project_id" not in env_conf and "GOOGLE_CLOUD_PROJECT" in exec_env:
+             env_conf["project_id"] = exec_env["GOOGLE_CLOUD_PROJECT"]
 
         vars_dict = handler.get_tform_vars(new_physical_name, env_conf, canary.module_params)
         
@@ -419,6 +429,10 @@ def delete_canary(resource_id_str: str):
         env_conf = env_obj.config.copy() if (env_obj and env_obj.config) else {}
         if env_obj and env_obj.credentials and "project_id" in env_obj.credentials and "project_id" not in env_conf:
              env_conf["project_id"] = env_obj.credentials["project_id"]
+
+        # Ensure project_id is passed if available in environment
+        if "project_id" not in env_conf and "GOOGLE_CLOUD_PROJECT" in exec_env:
+             env_conf["project_id"] = exec_env["GOOGLE_CLOUD_PROJECT"]
 
         vars_dict = handler.get_tform_vars(canary.current_resource_id, env_conf, canary.module_params)
         

@@ -25,16 +25,28 @@ logger = get_logger(__name__)
 
 @celery_app.task
 def create_logging_resource(name: str, provider_type_str: str, environment_id_str: str, config: dict = None):
-    """Create a logging resource (CloudTrail or GCP Audit Sink)."""
+    """
+    Create a logging resource (CloudTrail or GCP Audit Sink).
+    
+    Guarantees:
+    - Single atomic commit on success
+    - Cloud resource cleanup on failure (compensating transaction)
+    """
     import uuid
     db = SessionLocal()
+    manager = None
+    vars_dict = {}
+    exec_env = {}
+    cloud_resource_created = False
+    log_res_id = None
+
     try:
         provider_type = LoggingProviderType(provider_type_str)
         env_obj = db.query(CloudEnvironment).filter(CloudEnvironment.id == uuid.UUID(environment_id_str)).first()
         if not env_obj:
             raise ValueError(f"Environment {environment_id_str} not found")
 
-        # Create Record
+        # Create Record in CREATING state
         log_res = LoggingResource(
             name=name,
             provider_type=provider_type,
@@ -45,6 +57,7 @@ def create_logging_resource(name: str, provider_type_str: str, environment_id_st
         db.add(log_res)
         db.commit()
         db.refresh(log_res)
+        log_res_id = log_res.id
 
         if provider_type == LoggingProviderType.AWS_CLOUDTRAIL:
             template_path = os.path.join(TOFU_BASE_DIR, "aws_central_trail")
@@ -57,8 +70,6 @@ def create_logging_resource(name: str, provider_type_str: str, environment_id_st
             manager.init(env=exec_env, backend_config=backend_config)
             
             vars_dict = {"name": name}
-            # Only merge allowed Tofu variables from config
-            # Other config values are stored as metadata but not passed to Tofu
             if config:
                 allowed_vars = ['region', 'tags', 'resource_prefix']
                 for key in allowed_vars:
@@ -66,6 +77,7 @@ def create_logging_resource(name: str, provider_type_str: str, environment_id_st
                         vars_dict[key] = config[key]
             
             output = manager.apply(vars_dict, env=exec_env)
+            cloud_resource_created = True
             
             # Explicitly create a copy to ensure SQLAlchemy detects change
             conf = dict(log_res.configuration)
@@ -98,14 +110,18 @@ def create_logging_resource(name: str, provider_type_str: str, environment_id_st
                  vars_dict["project_id"] = env_obj.credentials["project_id"]
             
             if config:
-                # GCP sink only accepts project_id (name is already set)
                 if 'project_id' in config:
                     vars_dict['project_id'] = config['project_id']
+
+            # Use extracted project_id from env if not set
+            if "project_id" not in vars_dict and "GOOGLE_CLOUD_PROJECT" in exec_env:
+                 vars_dict["project_id"] = exec_env["GOOGLE_CLOUD_PROJECT"]
 
             if "project_id" not in vars_dict:
                  raise ValueError("project_id must be provided in env config or credentials for GCP_AUDIT_SINK")
 
             output = manager.apply(vars_dict, env=exec_env)
+            cloud_resource_created = True
             
             # Explicitly create a copy to ensure SQLAlchemy detects change
             conf = dict(log_res.configuration)
@@ -131,8 +147,28 @@ def create_logging_resource(name: str, provider_type_str: str, environment_id_st
     except Exception as e:
         logger.error(f"Error creating logging resource: {e}")
         db.rollback()
-        log_res.status = ResourceStatus.ERROR
-        db.commit()
+        
+        # Compensating Transaction: Cleanup cloud resource if created
+        if cloud_resource_created and manager:
+            try:
+                logger.info(f"Attempting cleanup of logging resource for {name}...")
+                manager.destroy(vars_dict, env=exec_env)
+                logger.info(f"Cleanup successful for {name}")
+            except Exception as cleanup_err:
+                logger.error(f"Cleanup FAILED for {name}: {cleanup_err}")
+
+        # Update status to ERROR in a new transaction
+        if log_res_id:
+            try:
+                db_err = SessionLocal()
+                err_res = db_err.query(LoggingResource).filter(LoggingResource.id == log_res_id).first()
+                if err_res:
+                    err_res.status = ResourceStatus.ERROR
+                    db_err.commit()
+                db_err.close()
+            except Exception as db_e:
+                logger.error(f"Failed to update logging resource status: {db_e}")
+
         raise e
     finally:
         db.close()

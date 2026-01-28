@@ -26,7 +26,11 @@ def get_db():
 
 def _write_gcp_creds(creds_dict) -> str:
     """Write GCP credentials to a temp file and return path."""
-    content = json.dumps(creds_dict, indent=2)
+    if isinstance(creds_dict, str):
+        content = creds_dict
+    else:
+        content = json.dumps(creds_dict, indent=2)
+        
     h = hashlib.md5(content.encode()).hexdigest()
     path = f"/tmp/gcp_creds_{h}.json"
     if not os.path.exists(path):
@@ -79,15 +83,37 @@ def _build_env_vars(environment: CloudEnvironment) -> dict:
             
     elif environment.provider_type == "GCP":
         # Support inline JSON credentials or a path
-        if "GOOGLE_CREDENTIALS_JSON" in creds or "google_credentials_json" in creds:
-            creds_json = creds.get("GOOGLE_CREDENTIALS_JSON") or creds.get("google_credentials_json")
-            path = _write_gcp_creds(creds_json)
-            env["GOOGLE_APPLICATION_CREDENTIALS"] = path
-        elif "GOOGLE_APPLICATION_CREDENTIALS" in creds or "google_application_credentials" in creds:
-            path = creds.get("GOOGLE_APPLICATION_CREDENTIALS") or creds.get("google_application_credentials")
-            env["GOOGLE_APPLICATION_CREDENTIALS"] = path
+        # Check for various key names
+        json_content = (creds.get("service_account_json") or 
+                       creds.get("GOOGLE_CREDENTIALS_JSON") or 
+                       creds.get("google_credentials_json"))
         
-        # Set project if specified
+        path_val = (creds.get("GOOGLE_APPLICATION_CREDENTIALS") or 
+                   creds.get("google_application_credentials"))
+
+        if json_content:
+            path = _write_gcp_creds(json_content)
+            env["GOOGLE_APPLICATION_CREDENTIALS"] = path
+            
+            # ECONOMIES OF MECHANISM: Extract project_id from the JSON
+            # This avoids requiring the user to specify it twice (once in JSON, once in config)
+            try:
+                if isinstance(json_content, str):
+                    data = json.loads(json_content)
+                else:
+                    data = json_content
+                
+                extracted_project = data.get("project_id")
+                if extracted_project and "GOOGLE_CLOUD_PROJECT" not in env:
+                    env["GOOGLE_CLOUD_PROJECT"] = extracted_project
+                    env["CLOUDSDK_CORE_PROJECT"] = extracted_project
+            except Exception as e:
+                logger.warning(f"Failed to parse GCP credentials JSON for project_id: {e}")
+
+        elif path_val:
+            env["GOOGLE_APPLICATION_CREDENTIALS"] = path_val
+        
+        # Explicit override takes precedence (or acts as fallback if JSON parsing failed)
         project = creds.get("project_id") or creds.get("GOOGLE_CLOUD_PROJECT")
         if project:
             env["GOOGLE_CLOUD_PROJECT"] = project
