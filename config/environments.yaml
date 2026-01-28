@@ -30,6 +30,15 @@ environments:
     config:
       region: ${DEMO_AWS_REGION:-us-east-1}
       description: "Demo environment for testing YAML sync"
+  
+  demo-gcp:
+    provider: GCP
+    credentials:
+      service_account_json: ${GCP_SERVICE_ACCOUNT_JSON:?GCP service account required}
+    config:
+      project_id: ${GCP_PROJECT_ID}
+      location: us-central1
+      description: "Demo environment for testing YAML sync"
 
   # Example AWS Environment (commented - uncomment and set env vars to use)
   # aws-production:
