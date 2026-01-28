@@ -123,10 +123,13 @@ def create_canary(name: str, resource_type_str: str, interval_seconds: int = 864
 
         vars_dict = handler.get_tform_vars(physical_name, env_conf, module_params)
         
-        # Start: Legacy behavior - merge env config again to ensure global vars are present
+        # Only merge allowed global vars from env config (region, tags)
+        # to avoid passing undeclared variables to Tofu
         if env_obj and env_obj.config:
-            vars_dict.update(env_obj.config)
-        # End: Legacy behavior
+            allowed_global_vars = ['region', 'tags']
+            for key in allowed_global_vars:
+                if key in env_obj.config and key not in vars_dict:
+                    vars_dict[key] = env_obj.config[key]
 
         # 1. Apply - Create cloud resource
         output = manager.apply(vars_dict, env=exec_env)
@@ -275,8 +278,12 @@ def rotate_canary(resource_id_str: str, new_name: str = None):
 
         vars_dict = handler.get_tform_vars(new_physical_name, env_conf, canary.module_params)
         
+        # Only merge allowed global vars from env config (region, tags)
         if env_obj and env_obj.config:
-            vars_dict.update(env_obj.config)
+            allowed_global_vars = ['region', 'tags']
+            for key in allowed_global_vars:
+                if key in env_obj.config and key not in vars_dict:
+                    vars_dict[key] = env_obj.config[key]
         
         output = manager.apply(vars_dict, env=exec_env)
         
@@ -415,8 +422,12 @@ def delete_canary(resource_id_str: str):
 
         vars_dict = handler.get_tform_vars(canary.current_resource_id, env_conf, canary.module_params)
         
+        # Only merge allowed global vars from env config (region, tags)
         if env_obj and env_obj.config:
-            vars_dict.update(env_obj.config)
+            allowed_global_vars = ['region', 'tags']
+            for key in allowed_global_vars:
+                if key in env_obj.config and key not in vars_dict:
+                    vars_dict[key] = env_obj.config[key]
 
         # 1. Unregister from logging if necessary
         from .logging import _update_trail_selectors, _update_gcp_sink_filter

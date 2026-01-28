@@ -57,8 +57,13 @@ def create_logging_resource(name: str, provider_type_str: str, environment_id_st
             manager.init(env=exec_env, backend_config=backend_config)
             
             vars_dict = {"name": name}
+            # Only merge allowed Tofu variables from config
+            # Other config values are stored as metadata but not passed to Tofu
             if config:
-                vars_dict.update(config)
+                allowed_vars = ['region', 'tags', 'resource_prefix']
+                for key in allowed_vars:
+                    if key in config:
+                        vars_dict[key] = config[key]
             
             output = manager.apply(vars_dict, env=exec_env)
             
@@ -93,7 +98,9 @@ def create_logging_resource(name: str, provider_type_str: str, environment_id_st
                  vars_dict["project_id"] = env_obj.credentials["project_id"]
             
             if config:
-                vars_dict.update(config)
+                # GCP sink only accepts project_id (name is already set)
+                if 'project_id' in config:
+                    vars_dict['project_id'] = config['project_id']
 
             if "project_id" not in vars_dict:
                  raise ValueError("project_id must be provided in env config or credentials for GCP_AUDIT_SINK")
