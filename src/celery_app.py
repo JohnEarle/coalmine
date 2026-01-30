@@ -33,7 +33,7 @@ celery_app.conf.beat_schedule = {
         'schedule': 60.0,
     },
     'validate-resources-every-10-minutes': {
-        'task': 'src.tasks.validation.validate_resources',
+        'task': 'src.tasks.validation.run_health_checks',
         'schedule': 600.0,
     },
 }

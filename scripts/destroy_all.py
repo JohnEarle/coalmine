@@ -6,7 +6,7 @@ sys.path.append(os.getcwd())
 
 from src.models import SessionLocal, CanaryResource, LoggingResource, ResourceStatus, ResourceType
 from src.tofu_manager import TofuManager
-from src.tasks import _get_template_name, _build_env_vars, TOFU_BASE_DIR, STATE_BASE_DIR
+from src.tasks.helpers import _get_template_name, _get_execution_env, TOFU_BASE_DIR, STATE_BASE_DIR, _get_backend_config
 
 def destroy_all():
     db = SessionLocal()
@@ -30,10 +30,11 @@ def destroy_all():
                 manager = TofuManager(template_path, c.tf_state_path)
                 
                 env = c.environment
-                exec_env = _build_env_vars(env)
+                exec_env = _get_execution_env(env)
                 
                 # We need to init to get the providers ready for destroy
-                manager.init(env=exec_env)
+                backend_config = _get_backend_config(str(c.id))
+                manager.init(env=exec_env, backend_config=backend_config, clean_env=True)
                 
                 # Reconstruct vars just for destroy (needed for required variables)
                 vars_dict = {}
@@ -47,7 +48,7 @@ def destroy_all():
                 if c.module_params:
                     vars_dict.update(c.module_params)
 
-                manager.destroy(vars_dict, env=exec_env)
+                manager.destroy(vars_dict, env=exec_env, clean_env=True)
                 print(f"  - Tofu Destroy Successful")
                 
             except Exception as e:
@@ -78,23 +79,31 @@ def destroy_all():
                 continue
 
             try:
-                # Assuming AWS_CLOUDTRAIL use aws_central_trail
-                # We need to know which template was used. 
-                # For now we assume aws_central_trail if it looks like one.
-                template_path = os.path.join(TOFU_BASE_DIR, "aws_central_trail")
+                # Determine template based on provider type
+                if l.provider_type == LoggingProviderType.AWS_CLOUDTRAIL:
+                    template_name = "aws_central_trail"
+                elif l.provider_type == LoggingProviderType.GCP_AUDIT_SINK:
+                    template_name = "gcp_audit_sink"
+                else:
+                    print(f"  - Unknown provider type {l.provider_type} for {l.name}, skipping.")
+                    continue
+
+                template_path = os.path.join(TOFU_BASE_DIR, template_name)
                 
                 manager = TofuManager(template_path, state_path)
                 env = l.environment
-                exec_env = _build_env_vars(env)
+                exec_env = _get_execution_env(env)
                 
-                manager.init(env=exec_env)
+                # We need to init to get the providers ready for destroy
+                backend_config = _get_backend_config(str(l.id))
+                manager.init(env=exec_env, backend_config=backend_config, clean_env=True)
                 
                 vars_dict = {"name": l.name}
-                if l.configuration:
-                    # filter out internal keys if mixed
-                    pass
+                if l.provider_type == LoggingProviderType.GCP_AUDIT_SINK:
+                     if env.config and "project_id" in env.config:
+                         vars_dict["project_id"] = env.config["project_id"]
                 
-                manager.destroy(vars_dict, env=exec_env)
+                manager.destroy(vars_dict, env=exec_env, clean_env=True)
                 print(f"  - Tofu Destroy Successful")
                 
             except Exception as e:

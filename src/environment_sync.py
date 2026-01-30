@@ -62,8 +62,8 @@ def sync_environments_from_yaml(
     
     try:
         yaml_envs = get_environments()
-    except ValueError as e:
-        # Missing environment variable
+    except (ValueError, Exception) as e:
+        # Missing environment variable or Pydantic validation error
         logger.error(f"Failed to load environments.yaml: {e}")
         result["errors"].append({"name": "_config", "error": str(e)})
         return result
@@ -100,7 +100,7 @@ def sync_environments_from_yaml(
 def _sync_single_environment(
     db,
     name: str,
-    config: Dict[str, Any],
+    config: Any, # CloudEnvironmentConfig
     dry_run: bool,
     force: bool,
     result: Dict[str, List]
@@ -120,9 +120,9 @@ def _sync_single_environment(
         CloudEnvironment.name == name
     ).first()
     
-    provider = config.get("provider", "AWS")
-    credentials = config.get("credentials", {})
-    env_config = config.get("config", {})
+    provider = config.provider
+    credentials = config.credentials
+    env_config = config.config
     
     if existing:
         if force:

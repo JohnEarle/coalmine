@@ -262,10 +262,10 @@ def run():
         db = SessionLocal()
         try:
             logs = db.query(LoggingResource).all()
-            print(f"{'ID':<38} | {'Name':<20} | {'Type':<15} | {'Env':<38}")
-            print("-" * 120)
+            print(f"{'ID':<38} | {'Name':<20} | {'Type':<15} | {'Status':<10} | {'Env':<38}")
+            print("-" * 135)
             for l in logs:
-                print(f"{str(l.id):<38} | {l.name:<20} | {l.provider_type.value:<15} | {str(l.environment_id):<38}")
+                print(f"{str(l.id):<38} | {l.name:<20} | {l.provider_type.value:<15} | {l.status.value:<10} | {str(l.environment_id):<38}")
         finally:
             db.close()
 

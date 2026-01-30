@@ -117,6 +117,7 @@ class CloudEnvironment(Base):
     provider_type = Column(String, nullable=False) 
     credentials = Column(JSON, nullable=True)
     config = Column(JSON, nullable=True)
+    status = Column(_resource_status_col(), default=ResourceStatus.ACTIVE)
 
     resources = relationship("CanaryResource", back_populates="environment")
     logging_resources = relationship("LoggingResource", back_populates="environment")
@@ -128,7 +129,7 @@ class LoggingResource(Base):
     name = Column(String, nullable=False) # e.g. "central-trail-01"
     provider_type = Column(_logging_provider_type_col(), nullable=False)
     
-    environment_id = Column(UUID(as_uuid=True), ForeignKey('cloud_environments.id'), nullable=True)
+    environment_id = Column(UUID(as_uuid=True), ForeignKey('cloud_environments.id'), nullable=False)
     environment = relationship("CloudEnvironment", back_populates="logging_resources")
     
     # Configuration (e.g. Trail Name, Log Group Path, Project ID)

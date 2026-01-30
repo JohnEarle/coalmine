@@ -1,115 +1,79 @@
 """
-Resource validation task - checks for drift and errors.
+Resource health check task - uses unified HealthCheckFactory.
 """
 from ..celery_app import celery_app
 from ..models import (
-    SessionLocal, CanaryResource, LoggingResource, ResourceHistory,
-    ResourceStatus, ActionType, ResourceType, LoggingProviderType
+    SessionLocal, CanaryResource, LoggingResource, CloudEnvironment,
+    ResourceHistory, ResourceStatus, ActionType
 )
-from ..tofu_manager import TofuManager
 from ..logging_config import get_logger
-from .helpers import (
-    TOFU_BASE_DIR, STATE_BASE_DIR,
-    _build_env_vars, _get_template_name, _get_backend_config
-)
-import os
+from ..health.factory import HealthCheckFactory
+from ..health.environment import EnvironmentHealthCheck
+from ..health.logging import LoggingHealthCheck
+from ..health.canary import CanaryHealthCheck
 
 logger = get_logger(__name__)
 
+# Register Validators
+HealthCheckFactory.register(CloudEnvironment, EnvironmentHealthCheck)
+HealthCheckFactory.register(LoggingResource, LoggingHealthCheck)
+HealthCheckFactory.register(CanaryResource, CanaryHealthCheck)
 
 @celery_app.task
-def validate_resources():
+def run_health_checks():
     """
-    Periodically checks ACTIVE resources for drift or errors.
-    Runs `tofu plan` without changes.
+    Periodically checks status of all resources (Environments, Logging, Canaries).
     """
     db = SessionLocal()
     try:
-        # Check Canaries
-        canaries = db.query(CanaryResource).filter(
-            CanaryResource.status == ResourceStatus.ACTIVE
-        ).all()
-        
-        for canary in canaries:
-            try:
-                template_name = _get_template_name(canary.resource_type)
-                template_path = os.path.join(TOFU_BASE_DIR, template_name)
-                manager = TofuManager(template_path, canary.tf_state_path)
-                
-                env = canary.environment
-                exec_env = _build_env_vars(env)
-                
-                backend_config = _get_backend_config(str(canary.id))
-                manager.init(env=exec_env, backend_config=backend_config)
-                
-                vars_dict = {}
-                if canary.resource_type == ResourceType.AWS_IAM_USER:
-                    vars_dict["user_name"] = canary.current_resource_id
-                else:
-                    vars_dict["bucket_name"] = canary.current_resource_id
-                
-                if env and env.config:
-                    vars_dict.update(env.config)
-                if canary.module_params:
-                    vars_dict.update(canary.module_params)
-                    
-                logger.info(f"Validating Canary {canary.name} ({canary.id})...")
-                code, out = manager.plan(vars_dict, env=exec_env, detailed_exitcode=True)
-                
-                if code != 0:
-                     logger.warning(f"Drift detected for {canary.name}. Exit Code: {code}")
-                     canary.status = ResourceStatus.DRIFT
-                     history = ResourceHistory(
-                        resource_id=canary.id,
-                        action=ActionType.ALERT,
-                        details={"warning": f"Drift detected. Tofu ExitCode: {code}", "stdout": out}
-                     )
-                     db.add(history)
-                     db.commit()
-                else:
-                    logger.info(f"Canary {canary.name} is healthy.")
+        # 1. Check Cloud Environments
+        envs = db.query(CloudEnvironment).all()
+        for env in envs:
+            _check_and_update(db, env, "Environment")
 
-            except Exception as e:
-                logger.error(f"Error validating canary {canary.name}: {e}")
-                
-        # Check Logging Resources
+        # 2. Check Logging Resources
         logs = db.query(LoggingResource).filter(
-            LoggingResource.status == ResourceStatus.ACTIVE
+            LoggingResource.status != ResourceStatus.DELETED
         ).all()
-        
         for log in logs:
-            try:
-                if log.provider_type != LoggingProviderType.AWS_CLOUDTRAIL:
-                    continue
-                    
-                template_path = os.path.join(TOFU_BASE_DIR, "aws_central_trail")
-                work_dir = os.path.join(STATE_BASE_DIR, str(log.id))
-                
-                manager = TofuManager(template_path, work_dir)
-                env = log.environment
-                exec_env = _build_env_vars(env)
-                
-                backend_config = _get_backend_config(str(log.id))
-                manager.init(env=exec_env, backend_config=backend_config)
-                
-                vars_dict = {"name": log.name}
-                if log.configuration:
-                     for k,v in log.configuration.items():
-                         if k not in ["trail_name", "tofu_output"]:
-                             vars_dict[k] = v
-                
-                logger.info(f"Validating Log {log.name} ({log.id})...")
-                code, out = manager.plan(vars_dict, env=exec_env, detailed_exitcode=True)
-                
-                if code != 0:
-                     logger.warning(f"Drift/Error detected for {log.name}. Exit Code: {code}")
-                     log.status = ResourceStatus.ERROR
-                     db.commit()
-                else:
-                    logger.info(f"Log {log.name} is healthy.")
-                    
-            except Exception as e:
-                logger.error(f"Error validating log {log.name}: {e}")
+            _check_and_update(db, log, "Logging")
 
+        # 3. Check Canaries
+        canaries = db.query(CanaryResource).filter(
+            CanaryResource.status != ResourceStatus.DELETED
+        ).all()
+        for canary in canaries:
+            _check_and_update(db, canary, "Canary")
+            
     finally:
         db.close()
+
+def _check_and_update(db, resource, label):
+    """Helper to run check and update status/history."""
+    try:
+        checker = HealthCheckFactory.get_checker(resource)
+        is_healthy, message = checker.check(resource)
+        
+        if not is_healthy:
+            logger.warning(f"{label} {resource.name} Unhealthy: {message}")
+            if resource.status != ResourceStatus.ERROR:
+                resource.status = ResourceStatus.ERROR
+                
+                # History is only on Canaries currently, but we can check attribute
+                if hasattr(resource, 'history'):
+                    history = ResourceHistory(
+                        resource_id=resource.id,
+                        action=ActionType.ALERT,
+                        details={"warning": f"Health Check Failed: {message}"}
+                    )
+                    db.add(history)
+                db.commit()
+        else:
+            # Auto-recovery could be nice, but for now just log
+            logger.info(f"{label} {resource.name} is healthy.")
+            if resource.status == ResourceStatus.ERROR:
+                resource.status = ResourceStatus.ACTIVE
+                db.commit()
+                
+    except Exception as e:
+        logger.error(f"Error checking {label} {resource.name}: {e}")
