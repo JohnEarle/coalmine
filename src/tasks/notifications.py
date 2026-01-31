@@ -17,10 +17,13 @@ logger = get_logger(__name__)
 )
 def send_notification(alert_id: str, notifier_type: str):
     """
-    Send a notification for an alert using the specified notifier type.
+    Send a notification for an alert using all notifiers of the specified type.
     
-    Decoupled from the monitoring loop to prevent slow notifiers from
-    blocking alert processing.
+    This task handles ALL notifiers of a given type (e.g. all webhooks).
+    It attempts to send to all of them, identifying them by name.
+    Failures are logged individually. If ANY fail, the task raises an exception
+    to trigger a retry (but only for the failed ones, ideally, though here
+    we retry the whole type block - simplified for stability).
     """
     db = SessionLocal()
     try:
@@ -30,17 +33,29 @@ def send_notification(alert_id: str, notifier_type: str):
             logger.warning(f"Alert {alert_id} not found for notification.")
             return
         
-        # Get all notifiers and find the one matching the type
+        # Get all notifiers and find those matching the type
         notifiers = NotificationRegistry.get_notifiers()
-        for notifier in notifiers:
-            if type(notifier).__name__.lower().replace("notifier", "") == notifier_type:
-                try:
-                    notifier.send_alert(alert)
-                    logger.info(f"Sent {notifier_type} notification for alert {alert_id}")
-                except Exception as e:
-                    logger.error(f"Failed to send {notifier_type} notification: {e}")
-                    raise  # Let Celery retry
-                break
+        target_notifiers = [
+            n for n in notifiers 
+            if type(n).__name__.lower().replace("notifier", "") == notifier_type
+        ]
+
+        if not target_notifiers:
+            logger.info(f"No notifiers found for type {notifier_type}")
+            return
+
+        failures = []
+        for notifier in target_notifiers:
+            try:
+                notifier.send_alert(alert)
+                logger.info(f"Sent {notifier_type} notification via '{notifier.name}' for alert {alert_id}")
+            except Exception as e:
+                logger.error(f"Failed to send {notifier_type} notification via '{notifier.name}': {e}")
+                failures.append(notifier.name)
+        
+        if failures:
+            raise Exception(f"Failed to send to the following {notifier_type} notifiers: {', '.join(failures)}")
+
     finally:
         db.close()
 
@@ -54,6 +69,9 @@ def send_notification(alert_id: str, notifier_type: str):
 def send_all_notifications(alert_id: str):
     """
     Send notifications for an alert to all enabled notifiers.
+    
+    Dispatches a separate task for each notifier type (webhook, email, etc)
+    to allow for parallel processing and isolated failures.
     """
     db = SessionLocal()
     try:
@@ -64,12 +82,16 @@ def send_all_notifications(alert_id: str):
             return
         
         notifiers = NotificationRegistry.get_notifiers()
-        for notifier in notifiers:
-            try:
-                notifier.send_alert(alert)
-                logger.info(f"Sent {type(notifier).__name__} notification for alert {alert_id}")
-            except Exception as e:
-                logger.error(f"Failed to send notification via {type(notifier).__name__}: {e}")
-                # Continue to other notifiers, don't fail completely
+        # Find unique types to dispatch
+        # We normalize type names same as send_notification logic
+        notifier_types = set()
+        for n in notifiers:
+            t = type(n).__name__.lower().replace("notifier", "")
+            notifier_types.add(t)
+        
+        for n_type in notifier_types:
+            logger.info(f"Dispatching notification task for type: {n_type}")
+            send_notification.delay(alert_id, n_type)
+
     finally:
         db.close()

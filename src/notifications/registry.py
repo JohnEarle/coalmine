@@ -23,6 +23,9 @@ class NotificationRegistry:
         for name, conf in configs.items():
             if not conf.get("enabled", True):
                 continue
+            
+            # Inject the name into the config so the instance knows who it is
+            conf["name"] = name
                 
             n_type = conf.get("type")
             notifier_cls = cls._mapping.get(n_type)
