@@ -31,6 +31,10 @@ class DetectionConfig(BaseModel):
     strategy: str
     filter_pattern: Optional[str] = None
     query: Optional[str] = None
+    # Strategy-specific fields
+    filter_template: Optional[str] = None
+    lookup_attributes: Optional[list[str]] = None
+    event_names: Optional[list[str]] = None
 
 class DetectionsFile(BaseModel):
     detections: Dict[str, DetectionConfig] = Field(default_factory=dict)

@@ -16,7 +16,8 @@ class GcpAuditMonitor(AccessMonitor):
         
         # Support both uppercase and lowercase credential keys
         creds_json = (creds_wrapper.get("GOOGLE_CREDENTIALS_JSON") or 
-                      creds_wrapper.get("google_credentials_json"))
+                      creds_wrapper.get("google_credentials_json") or
+                      creds_wrapper.get("service_account_json"))
         
         if creds_json:
              import json

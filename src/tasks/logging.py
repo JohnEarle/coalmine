@@ -10,7 +10,8 @@ from ..tofu_manager import TofuManager
 from ..logging_config import get_logger
 from .helpers import (
     TOFU_BASE_DIR, STATE_BASE_DIR, 
-    _get_execution_env, _get_backend_config
+    _get_execution_env, _get_backend_config,
+    _get_template_name
 )
 from .lifecycle import ResourceLifecycleManager
 from ..logging_utils import _update_trail_selectors, _update_gcp_sink_filter

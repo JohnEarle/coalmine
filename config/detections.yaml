@@ -25,6 +25,7 @@ detections:
       - ConsoleLogin
       - CreateUser
       - GetUser
+      - GetCallerIdentity
   
   # GCP Service Account - Uses Cloud Logging query
   GCP_SERVICE_ACCOUNT:

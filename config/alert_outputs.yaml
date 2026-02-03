@@ -6,7 +6,7 @@ outputs:
    email_admin:
      type: "email"
      enabled: true
-     smtp_host: "host.docker.internal"
+     smtp_host: "mailhog"
      smtp_port: 1025
      from_addr: "alerts@example.com"
      to_addrs: ["admin@example.com"]

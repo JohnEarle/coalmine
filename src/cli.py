@@ -393,10 +393,11 @@ def run():
         db = SessionLocal()
         try:
             envs = db.query(CloudEnvironment).all()
-            print(f"{'ID':<38} | {'Name':<20} | {'Provider'}")
-            print("-" * 75)
+            print(f"{'ID':<38} | {'Name':<20} | {'Provider':<10} | {'Status'}")
+            print("-" * 90)
             for e in envs:
-                print(f"{str(e.id):<38} | {e.name:<20} | {e.provider_type}")
+                status = e.status.value if e.status else "UNKNOWN"
+                print(f"{str(e.id):<38} | {e.name:<20} | {e.provider_type:<10} | {status}")
         finally:
             db.close()
 

@@ -26,8 +26,16 @@ STRATEGY_CLASSES = {
 _yaml_registry_cache = {}
 
 
-def _build_strategy_from_config(config: dict):
-    """Build a strategy instance from YAML config."""
+def _build_strategy_from_config(config_obj):
+    """Build a strategy instance from configuration."""
+    # Handle Pydantic model
+    if hasattr(config_obj, "model_dump"):
+        config = config_obj.model_dump()
+    elif hasattr(config_obj, "dict"):
+        config = config_obj.dict()
+    else:
+        config = config_obj
+
     strategy_name = config.get("strategy")
     if not strategy_name or strategy_name not in STRATEGY_CLASSES:
         return None

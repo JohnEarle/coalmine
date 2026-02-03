@@ -159,6 +159,7 @@ class CanaryResource(Base):
 
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     expires_at = Column(DateTime, nullable=True)
+    last_checked_at = Column(DateTime, nullable=True)
     canary_credentials = Column(JSON, nullable=True) # Standardized storage for generated secrets
     interval_seconds = Column(Integer, default=3600*24)
     
