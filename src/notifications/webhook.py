@@ -14,10 +14,14 @@ class WebhookNotifier(Notifier):
 
         url = self.config.get("url")
         if not url:
-            logger.error("Webhook notifier configured without URL.")
+            logger.error(f"Webhook notifier '{self.name}' configured without URL.")
             return
 
+        timeout = self.config.get("timeout", 10)
+        user_agent = self.config.get("user_agent", "Coalmine-Alert-Bot/1.0")
+
         headers = self.config.get("headers", {})
+        headers.setdefault("User-Agent", user_agent)
         
         payload = {
             "alert_id": str(alert.id),
@@ -32,8 +36,12 @@ class WebhookNotifier(Notifier):
         }
 
         try:
-            resp = requests.post(url, json=payload, headers=headers, timeout=10)
+            resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
             resp.raise_for_status()
-            logger.info(f"Webhook alert sent to {url}")
+            logger.info(f"Webhook alert '{self.name}' sent to {url}")
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"Failed to send webhook alert '{self.name}': {e}. Response: {e.response.text}")
+            raise
         except Exception as e:
-            logger.error(f"Failed to send webhook alert: {e}")
+            logger.error(f"Failed to send webhook alert '{self.name}': {e}")
+            raise

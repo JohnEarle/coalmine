@@ -10,8 +10,9 @@ from ..tofu_manager import TofuManager
 from ..logging_config import get_logger
 from .helpers import (
     TOFU_BASE_DIR, STATE_BASE_DIR,
-    _build_env_vars, _get_template_name, _get_backend_config
+    _get_template_name, _get_execution_env, _get_backend_config
 )
+from .lifecycle import ResourceLifecycleManager
 from ..resources.registry import ResourceRegistry
 import uuid
 import datetime
@@ -37,17 +38,11 @@ def create_canary(name: str, resource_type_str: str, interval_seconds: int = 864
     - Cloud resource cleanup on failure (compensating transaction)
     - No orphaned resources
     """
-    db = SessionLocal()
-    manager = None
-    vars_dict = {}
-    exec_env = {}
-    cloud_resource_created = False
-    
-    try:
+    with ResourceLifecycleManager(action_type=ActionType.CREATE) as ctx:
         resource_type = ResourceType(resource_type_str)
         env_obj = None
         if environment_id_str:
-            env_obj = db.query(CloudEnvironment).filter(CloudEnvironment.id == uuid.UUID(environment_id_str)).first()
+            env_obj = ctx.db.query(CloudEnvironment).filter(CloudEnvironment.id == uuid.UUID(environment_id_str)).first()
             if not env_obj:
                 raise ValueError(f"Environment {environment_id_str} not found")
             if "AWS" in resource_type.value and env_obj.provider_type != "AWS":
@@ -58,9 +53,11 @@ def create_canary(name: str, resource_type_str: str, interval_seconds: int = 864
         # Logging Resource Lookup
         log_res = None
         if logging_resource_id_str:
-            log_res = db.query(LoggingResource).filter(LoggingResource.id == uuid.UUID(logging_resource_id_str)).first()
+            log_res = ctx.db.query(LoggingResource).filter(LoggingResource.id == uuid.UUID(logging_resource_id_str)).first()
             if not log_res:
                 raise ValueError(f"Logging Resource {logging_resource_id_str} not found")
+            if log_res.status != ResourceStatus.ACTIVE:
+                raise ValueError(f"Logging Resource {log_res.name} is not HEALTHY (Status: {log_res.status}). Cannot use for new canary.")
 
         # For AWS Buckets, enforce Logging Resource
         if resource_type == ResourceType.AWS_BUCKET and not log_res:
@@ -74,7 +71,7 @@ def create_canary(name: str, resource_type_str: str, interval_seconds: int = 864
             physical_name = name
             expires_at = None
 
-        # Create record in CREATING status (not committed yet)
+        # Create record in CREATING status
         canary = CanaryResource(
             name=name,
             resource_type=resource_type,
@@ -87,17 +84,13 @@ def create_canary(name: str, resource_type_str: str, interval_seconds: int = 864
             created_at=datetime.datetime.utcnow(),
             expires_at=expires_at
         )
-        db.add(canary)
-        db.flush()  # Get ID without committing
+        ctx.db.add(canary)
+        ctx.db.flush()  # Get ID without committing
+        ctx.resource = canary
 
         # Setup Tofu
         template_name = _get_template_name(resource_type)
-        template_path = os.path.join(TOFU_BASE_DIR, template_name)
-        work_dir = os.path.join(STATE_BASE_DIR, str(canary.id))
-        canary.tf_state_path = work_dir
-
-        manager = TofuManager(template_path, work_dir)
-        exec_env = _build_env_vars(env_obj)
+        exec_env = _get_execution_env(env_obj)
         
         # Debug: Log credential presence (not values!)
         if env_obj:
@@ -109,11 +102,9 @@ def create_canary(name: str, resource_type_str: str, interval_seconds: int = 864
         else:
             logger.warning("No environment object provided - using ambient credentials")
         
-        backend_config = _get_backend_config(str(canary.id))
-        manager.init(env=exec_env, backend_config=backend_config)
+        ctx.init_tofu(template_name, exec_env)
         
         # Build variables
-        # Build variables using EventHandler
         handler = ResourceRegistry.get_handler(resource_type)
         
         # Prepare merged config for handler (variable resolution)
@@ -121,20 +112,25 @@ def create_canary(name: str, resource_type_str: str, interval_seconds: int = 864
         if env_obj and env_obj.credentials and "project_id" in env_obj.credentials and "project_id" not in env_conf:
              env_conf["project_id"] = env_obj.credentials["project_id"]
 
+        # Ensure project_id is passed if available in environment
+        if "project_id" not in env_conf and "GOOGLE_CLOUD_PROJECT" in exec_env:
+             env_conf["project_id"] = exec_env["GOOGLE_CLOUD_PROJECT"]
+
         vars_dict = handler.get_tform_vars(physical_name, env_conf, module_params)
         
-        # Start: Legacy behavior - merge env config again to ensure global vars are present
+        # Only merge allowed global vars from env config (region, tags)
         if env_obj and env_obj.config:
-            vars_dict.update(env_obj.config)
-        # End: Legacy behavior
+            allowed_global_vars = ['region', 'tags']
+            for key in allowed_global_vars:
+                if key in env_obj.config and key not in vars_dict:
+                    vars_dict[key] = env_obj.config[key]
 
         # 1. Apply - Create cloud resource
-        output = manager.apply(vars_dict, env=exec_env)
-        cloud_resource_created = True  # Mark for cleanup on subsequent failures
+        output = ctx.apply(vars_dict)
         
         # 2. Get Outputs (Credentials)
         try:
-            outputs_json = manager.output()
+            outputs_json = ctx.manager.output()
             creds = {}
             for k, v in outputs_json.items():
                 creds[k] = v.get("value")
@@ -143,9 +139,7 @@ def create_canary(name: str, resource_type_str: str, interval_seconds: int = 864
             logger.warning(f"Failed to retrieve outputs for {name}: {e}")
         
         # 3. Verify with Plan (no drift)
-        plan_code, plan_out = manager.plan(vars_dict, env=exec_env, detailed_exitcode=True)
-        if plan_code != 0:
-            raise Exception(f"Verification Failed. State does not match config. Tofu Plan ExitCode: {plan_code}")
+        ctx.verify_plan()
 
         # 4. Register with logging infrastructure
         if log_res:
@@ -157,53 +151,11 @@ def create_canary(name: str, resource_type_str: str, interval_seconds: int = 864
             action=ActionType.CREATE,
             details={"stdout": output, "physical_name": physical_name}
         )
-        db.add(history)
+        ctx.db.add(history)
         
-        # 6. SUCCESS - Single atomic commit
+        # 6. SUCCESS
         canary.status = ResourceStatus.ACTIVE
-        db.commit()
-        logger.info(f"Canary {name} created successfully and verified.")
-        
-    except Exception as e:
-        logger.error(f"Error creating canary {name}: {e}")
-        db.rollback()
-        
-        # Compensating Transaction: Cleanup cloud resource if created
-        if cloud_resource_created and manager:
-            try:
-                logger.info(f"Attempting cleanup of cloud resource for {name}...")
-                manager.destroy(vars_dict, env=exec_env)
-                logger.info(f"Cleanup successful for {name}")
-            except Exception as cleanup_err:
-                logger.error(f"Cleanup FAILED for {name}: {cleanup_err}")
-        
-        # Record error in new transaction
-        try:
-            db_err = SessionLocal()
-            err_canary = CanaryResource(
-                name=name,
-                resource_type=ResourceType(resource_type_str),
-                status=ResourceStatus.ERROR,
-                created_at=datetime.datetime.utcnow()
-            )
-            db_err.add(err_canary)
-            db_err.flush()
-            
-            err_history = ResourceHistory(
-                resource_id=err_canary.id, 
-                action=ActionType.CREATE, 
-                details={"error": str(e), "cleanup_attempted": cloud_resource_created}
-            )
-            db_err.add(err_history)
-            db_err.commit()
-            db_err.close()
-        except Exception as record_err:
-            logger.error(f"Failed to record error state: {record_err}")
-        
-        raise e
-
-    finally:
-        db.close()
+        # ctx exit will commit
 
 
 @celery_app.task(
@@ -263,7 +215,7 @@ def rotate_canary(resource_id_str: str, new_name: str = None):
         )
         
         env_obj = canary.environment
-        exec_env = _build_env_vars(env_obj)
+        exec_env = _get_execution_env(env_obj)
         
         backend_config = _get_backend_config(str(canary.id))
         manager.init(env=exec_env, backend_config=backend_config)
@@ -272,11 +224,19 @@ def rotate_canary(resource_id_str: str, new_name: str = None):
         env_conf = env_obj.config.copy() if (env_obj and env_obj.config) else {}
         if env_obj and env_obj.credentials and "project_id" in env_obj.credentials and "project_id" not in env_conf:
              env_conf["project_id"] = env_obj.credentials["project_id"]
+        
+        # Ensure project_id is passed if available in environment
+        if "project_id" not in env_conf and "GOOGLE_CLOUD_PROJECT" in exec_env:
+             env_conf["project_id"] = exec_env["GOOGLE_CLOUD_PROJECT"]
 
         vars_dict = handler.get_tform_vars(new_physical_name, env_conf, canary.module_params)
         
+        # Only merge allowed global vars from env config (region, tags)
         if env_obj and env_obj.config:
-            vars_dict.update(env_obj.config)
+            allowed_global_vars = ['region', 'tags']
+            for key in allowed_global_vars:
+                if key in env_obj.config and key not in vars_dict:
+                    vars_dict[key] = env_obj.config[key]
         
         output = manager.apply(vars_dict, env=exec_env)
         
@@ -400,7 +360,7 @@ def delete_canary(resource_id_str: str):
         manager = None
         if work_dir and os.path.exists(work_dir):
             manager = TofuManager(template_path, work_dir)
-            exec_env = _build_env_vars(env_obj)
+            exec_env = _get_execution_env(env_obj)
             
             backend_config = _get_backend_config(str(canary.id))
             manager.init(env=exec_env, backend_config=backend_config)
@@ -413,10 +373,18 @@ def delete_canary(resource_id_str: str):
         if env_obj and env_obj.credentials and "project_id" in env_obj.credentials and "project_id" not in env_conf:
              env_conf["project_id"] = env_obj.credentials["project_id"]
 
+        # Ensure project_id is passed if available in environment
+        if "project_id" not in env_conf and "GOOGLE_CLOUD_PROJECT" in exec_env:
+             env_conf["project_id"] = exec_env["GOOGLE_CLOUD_PROJECT"]
+
         vars_dict = handler.get_tform_vars(canary.current_resource_id, env_conf, canary.module_params)
         
+        # Only merge allowed global vars from env config (region, tags)
         if env_obj and env_obj.config:
-            vars_dict.update(env_obj.config)
+            allowed_global_vars = ['region', 'tags']
+            for key in allowed_global_vars:
+                if key in env_obj.config and key not in vars_dict:
+                    vars_dict[key] = env_obj.config[key]
 
         # 1. Unregister from logging if necessary
         from .logging import _update_trail_selectors, _update_gcp_sink_filter

@@ -6,7 +6,7 @@ Re-exports all Celery tasks for backwards compatibility.
 from .canary import create_canary, rotate_canary, delete_canary, check_rotations
 from .logging import create_logging_resource
 from .monitoring import monitor_active_canaries
-from .validation import validate_resources
+from .validation import run_health_checks
 
 # Also expose ActionType for test compatibility
 from ..models import ActionType
@@ -25,7 +25,7 @@ __all__ = [
     "check_rotations",
     "create_logging_resource",
     "monitor_active_canaries",
-    "validate_resources",
+    "run_health_checks",
     # Constants
     "TOFU_BASE_DIR",
     "STATE_BASE_DIR",

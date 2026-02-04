@@ -13,10 +13,13 @@ class TofuManager:
         self.template_dir = Path(template_dir).resolve()
         self.work_dir = Path(work_dir).resolve()
 
-    def _run_command(self, args, env=None):
-        full_env = os.environ.copy()
-        if env:
-            full_env.update(env)
+    def _run_command(self, args, env=None, clean_env=False):
+        if clean_env:
+            full_env = env if env else {}
+        else:
+            full_env = os.environ.copy()
+            if env:
+                full_env.update(env)
         
         # Ensure work dir exists
         self.work_dir.mkdir(parents=True, exist_ok=True)
@@ -34,7 +37,7 @@ class TofuManager:
         
         return result.stdout
 
-    def init(self, env: dict = None, backend_config: dict = None):
+    def init(self, env: dict = None, backend_config: dict = None, clean_env: bool = False):
         # If the work dir is empty, we might need to copy templates first
         # Ideally, we don't modify the template dir. 
         # Standard pattern: copy source files to work_dir.
@@ -49,9 +52,9 @@ class TofuManager:
             for k, v in backend_config.items():
                 args.append(f"-backend-config={k}={v}")
 
-        return self._run_command(args, env=env)
+        return self._run_command(args, env=env, clean_env=clean_env)
 
-    def apply(self, vars_dict: dict, env: dict = None):
+    def apply(self, vars_dict: dict, env: dict = None, clean_env: bool = False):
         # Construct -var arguments
         args = ["apply", "-auto-approve", "-no-color", "-input=false"]
         for k, v in vars_dict.items():
@@ -60,18 +63,18 @@ class TofuManager:
                 v = json.dumps(v)
             args.extend(["-var", f"{k}={v}"])
             
-        return self._run_command(args, env=env)
+        return self._run_command(args, env=env, clean_env=clean_env)
 
-    def destroy(self, vars_dict: dict, env: dict = None):
+    def destroy(self, vars_dict: dict, env: dict = None, clean_env: bool = False):
         args = ["destroy", "-auto-approve", "-no-color", "-input=false"]
         for k, v in vars_dict.items():
             if isinstance(v, (dict, list)):
                 v = json.dumps(v)
             args.extend(["-var", f"{k}={v}"])
             
-        return self._run_command(args, env=env)
+        return self._run_command(args, env=env, clean_env=clean_env)
 
-    def plan(self, vars_dict: dict, env: dict = None, detailed_exitcode: bool = True):
+    def plan(self, vars_dict: dict, env: dict = None, detailed_exitcode: bool = True, clean_env: bool = False):
         """
         Runs tofu plan.
         If detailed_exitcode is True:
@@ -89,9 +92,12 @@ class TofuManager:
             args.extend(["-var", f"{k}={v}"])
             
         # We need to handle exit codes manually for plan
-        full_env = os.environ.copy()
-        if env:
-            full_env.update(env)
+        if clean_env:
+            full_env = env if env else {}
+        else:
+            full_env = os.environ.copy()
+            if env:
+                full_env.update(env)
         
         self.work_dir.mkdir(parents=True, exist_ok=True)
         
@@ -103,7 +109,10 @@ class TofuManager:
             text=True
         )
         
-        return result.returncode, result.stdout
+        output = result.stdout
+        if result.stderr:
+            output += f"\nSTDERR:\n{result.stderr}"
+        return result.returncode, output
 
     def output(self):
         stdout = self._run_command(["output", "-json", "-no-color"])

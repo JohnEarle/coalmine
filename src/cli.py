@@ -92,6 +92,11 @@ Environment & Logging:
   list-envs
       List registered environments.
   
+  sync-envs [--dry-run] [--force] [--validate]
+      Sync environments from config/environments.yaml to database.
+      YAML supports ${VAR}, ${VAR:-default}, ${VAR:?error} syntax.
+      DB entries take precedence unless --force is used.
+  
   create-log <name> <type> --env <id> [--config <json>]
       Configure a logging resource (e.g. CloudTrail, GCP Audit Sink).
   
@@ -164,11 +169,17 @@ def run():
     # Command: list-envs
     subparsers.add_parser("list-envs", help="List cloud environments")
 
+    # Command: sync-envs
+    parser_sync_envs = subparsers.add_parser("sync-envs", help="Sync environments from config/environments.yaml")
+    parser_sync_envs.add_argument("--dry-run", action="store_true", help="Show what would be synced without making changes")
+    parser_sync_envs.add_argument("--force", action="store_true", help="Overwrite existing DB entries with YAML config (dangerous)")
+    parser_sync_envs.add_argument("--validate", action="store_true", help="Only validate environment variables, don't sync")
+
     # Command: help
     subparsers.add_parser("help", help="Show detailed usage guide")
 
     # Legacy support check
-    if len(sys.argv) > 1 and sys.argv[1] not in ["create", "create-log", "list-logs", "create-env", "scan_trails", "get-creds", "list", "delete", "list-envs", "list-alerts", "trigger", "help", "-h", "--help"]:
+    if len(sys.argv) > 1 and sys.argv[1] not in ["create", "create-log", "list-logs", "create-env", "scan_trails", "get-creds", "list", "delete", "list-envs", "sync-envs", "list-alerts", "trigger", "help", "-h", "--help"]:
          print("Using legacy flow is deprecated. Please use 'create' subcommand.")
          # Fallback logic removed for clarity, user should switch.
          return
@@ -251,10 +262,10 @@ def run():
         db = SessionLocal()
         try:
             logs = db.query(LoggingResource).all()
-            print(f"{'ID':<38} | {'Name':<20} | {'Type':<15} | {'Env':<38}")
-            print("-" * 120)
+            print(f"{'ID':<38} | {'Name':<20} | {'Type':<15} | {'Status':<10} | {'Env':<38}")
+            print("-" * 135)
             for l in logs:
-                print(f"{str(l.id):<38} | {l.name:<20} | {l.provider_type.value:<15} | {str(l.environment_id):<38}")
+                print(f"{str(l.id):<38} | {l.name:<20} | {l.provider_type.value:<15} | {l.status.value:<10} | {str(l.environment_id):<38}")
         finally:
             db.close()
 
@@ -377,18 +388,69 @@ def run():
         finally:
             db.close()
 
+
     elif args.command == "list-envs":
         db = SessionLocal()
         try:
             envs = db.query(CloudEnvironment).all()
-            print(f"{'ID':<38} | {'Name':<20} | {'Provider'}")
-            print("-" * 75)
+            print(f"{'ID':<38} | {'Name':<20} | {'Provider':<10} | {'Status'}")
+            print("-" * 90)
             for e in envs:
-                print(f"{str(e.id):<38} | {e.name:<20} | {e.provider_type}")
+                status = e.status.value if e.status else "UNKNOWN"
+                print(f"{str(e.id):<38} | {e.name:<20} | {e.provider_type:<10} | {status}")
         finally:
             db.close()
 
-
+    elif args.command == "sync-envs":
+        from src.environment_sync import sync_environments_from_yaml, validate_yaml_environments
+        
+        if args.validate:
+            # Validate only mode
+            print("Validating environment variables...")
+            result = validate_yaml_environments()
+            
+            for env_name, status in result["environments"].items():
+                if status["valid"]:
+                    print(f"  ✓ {env_name}: OK")
+                else:
+                    print(f"  ✗ {env_name}: {status['error']}")
+            
+            if result["valid"]:
+                print("\nAll environments valid.")
+            else:
+                print("\nValidation failed. Set required environment variables before syncing.")
+            return
+        
+        if args.dry_run:
+            print("Dry run - no changes will be made\n")
+        
+        if args.force:
+            print("WARNING: Force mode enabled - existing DB entries will be overwritten\n")
+        
+        result = sync_environments_from_yaml(dry_run=args.dry_run, force=args.force)
+        
+        if result["created"]:
+            print(f"Created ({len(result['created'])}):")
+            for name in result["created"]:
+                print(f"  + {name}")
+        
+        if result["updated"]:
+            print(f"Updated ({len(result['updated'])}):")
+            for name in result["updated"]:
+                print(f"  ~ {name}")
+        
+        if result["skipped"]:
+            print(f"Skipped - already in DB ({len(result['skipped'])}):")
+            for name in result["skipped"]:
+                print(f"  - {name}")
+        
+        if result["errors"]:
+            print(f"Errors ({len(result['errors'])}):")
+            for err in result["errors"]:
+                print(f"  ! {err['name']}: {err['error']}")
+        
+        if not any([result["created"], result["updated"], result["skipped"], result["errors"]]):
+            print("No environments defined in config/environments.yaml")
 
     elif args.command == "help":
         print_custom_help()

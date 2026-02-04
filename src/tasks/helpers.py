@@ -26,7 +26,11 @@ def get_db():
 
 def _write_gcp_creds(creds_dict) -> str:
     """Write GCP credentials to a temp file and return path."""
-    content = json.dumps(creds_dict, indent=2)
+    if isinstance(creds_dict, str):
+        content = creds_dict
+    else:
+        content = json.dumps(creds_dict, indent=2)
+        
     h = hashlib.md5(content.encode()).hexdigest()
     path = f"/tmp/gcp_creds_{h}.json"
     if not os.path.exists(path):
@@ -79,15 +83,37 @@ def _build_env_vars(environment: CloudEnvironment) -> dict:
             
     elif environment.provider_type == "GCP":
         # Support inline JSON credentials or a path
-        if "GOOGLE_CREDENTIALS_JSON" in creds or "google_credentials_json" in creds:
-            creds_json = creds.get("GOOGLE_CREDENTIALS_JSON") or creds.get("google_credentials_json")
-            path = _write_gcp_creds(creds_json)
-            env["GOOGLE_APPLICATION_CREDENTIALS"] = path
-        elif "GOOGLE_APPLICATION_CREDENTIALS" in creds or "google_application_credentials" in creds:
-            path = creds.get("GOOGLE_APPLICATION_CREDENTIALS") or creds.get("google_application_credentials")
-            env["GOOGLE_APPLICATION_CREDENTIALS"] = path
+        # Check for various key names
+        json_content = (creds.get("service_account_json") or 
+                       creds.get("GOOGLE_CREDENTIALS_JSON") or 
+                       creds.get("google_credentials_json"))
         
-        # Set project if specified
+        path_val = (creds.get("GOOGLE_APPLICATION_CREDENTIALS") or 
+                   creds.get("google_application_credentials"))
+
+        if json_content:
+            path = _write_gcp_creds(json_content)
+            env["GOOGLE_APPLICATION_CREDENTIALS"] = path
+            
+            # ECONOMIES OF MECHANISM: Extract project_id from the JSON
+            # This avoids requiring the user to specify it twice (once in JSON, once in config)
+            try:
+                if isinstance(json_content, str):
+                    data = json.loads(json_content)
+                else:
+                    data = json_content
+                
+                extracted_project = data.get("project_id")
+                if extracted_project and "GOOGLE_CLOUD_PROJECT" not in env:
+                    env["GOOGLE_CLOUD_PROJECT"] = extracted_project
+                    env["CLOUDSDK_CORE_PROJECT"] = extracted_project
+            except Exception as e:
+                logger.warning(f"Failed to parse GCP credentials JSON for project_id: {e}")
+
+        elif path_val:
+            env["GOOGLE_APPLICATION_CREDENTIALS"] = path_val
+        
+        # Explicit override takes precedence (or acts as fallback if JSON parsing failed)
         project = creds.get("project_id") or creds.get("GOOGLE_CLOUD_PROJECT")
         if project:
             env["GOOGLE_CLOUD_PROJECT"] = project
@@ -96,15 +122,86 @@ def _build_env_vars(environment: CloudEnvironment) -> dict:
     return env
 
 
-def _get_template_name(resource_type: ResourceType) -> str:
+def _get_execution_env(environment: CloudEnvironment) -> dict:
+    """
+    Construct environment variables for Tofu execution.
+    Returns ONLY the variables defined in the CloudEnvironment, 
+    intended for use with TofuManager's clean_env=True mode.
+    """
+    if not environment:
+        return {}
+    
+    env = {}
+    creds = environment.credentials or {}
+    
+    if environment.provider_type == "AWS":
+        # Support both uppercase and lowercase credential keys
+        access_key = creds.get("AWS_ACCESS_KEY_ID") or creds.get("aws_access_key_id")
+        secret_key = creds.get("AWS_SECRET_ACCESS_KEY") or creds.get("aws_secret_access_key")
+        session_token = creds.get("AWS_SESSION_TOKEN") or creds.get("aws_session_token")
+        region = creds.get("AWS_REGION") or creds.get("region") or creds.get("aws_region")
+        
+        if access_key:
+            env["AWS_ACCESS_KEY_ID"] = access_key
+        if secret_key:
+            env["AWS_SECRET_ACCESS_KEY"] = secret_key
+        if session_token:
+            env["AWS_SESSION_TOKEN"] = session_token
+        if region:
+            env["AWS_REGION"] = region
+            env["AWS_DEFAULT_REGION"] = region
+            
+    elif environment.provider_type == "GCP":
+        json_content = (creds.get("service_account_json") or 
+                       creds.get("GOOGLE_CREDENTIALS_JSON") or 
+                       creds.get("google_credentials_json"))
+        
+        path_val = (creds.get("GOOGLE_APPLICATION_CREDENTIALS") or 
+                   creds.get("google_application_credentials"))
+
+        if json_content:
+            path = _write_gcp_creds(json_content)
+            env["GOOGLE_APPLICATION_CREDENTIALS"] = path
+            
+            try:
+                if isinstance(json_content, str):
+                    data = json.loads(json_content)
+                else:
+                    data = json_content
+                
+                extracted_project = data.get("project_id")
+                if extracted_project:
+                    env["GOOGLE_CLOUD_PROJECT"] = extracted_project
+                    env["CLOUDSDK_CORE_PROJECT"] = extracted_project
+            except Exception as e:
+                logger.warning(f"Failed to parse GCP credentials JSON for project_id: {e}")
+
+        elif path_val:
+            env["GOOGLE_APPLICATION_CREDENTIALS"] = path_val
+        
+        project = creds.get("project_id") or creds.get("GOOGLE_CLOUD_PROJECT")
+        if project:
+            env["GOOGLE_CLOUD_PROJECT"] = project
+            env["CLOUDSDK_CORE_PROJECT"] = project
+            
+    return env
+
+
+def _get_template_name(resource_type) -> str:
     """
     Map resource type to Tofu template directory name.
     
-    Loads from config/resource_types.yaml, falls back to convention:
-    AWS_BUCKET -> aws_bucket
+    Accepts ResourceType or LoggingProviderType (Enum or string).
     """
+    val = resource_type.value if hasattr(resource_type, "value") else str(resource_type)
+    
+    # Explicit Mappings
+    if val == "AWS_CLOUDTRAIL":
+        return "aws_central_trail"
+    
+    # Global Config Lookup
     from ..config_loader import get_template_name
-    return get_template_name(resource_type.value)
+    return get_template_name(val)
 
 
 from sqlalchemy import text

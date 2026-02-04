@@ -1,0 +1,60 @@
+# Cloud Environment Configuration
+# ================================
+# 
+# Define cloud environments for canary deployment. Environment variables
+# can be used with the following syntax:
+#   - ${VAR_NAME}           - Required, fails if not set
+#   - ${VAR_NAME:-default}  - Optional with default value
+#   - ${VAR_NAME:?error}    - Required with custom error message
+#
+# Conflict Resolution:
+#   Database entries take precedence over YAML entries. If an environment
+#   with the same name exists in the database, the YAML entry is skipped.
+#   This allows YAML to define baseline environments while CLI commands
+#   can override or customize them.
+#
+# To sync environments from this file:
+#   docker compose exec app python src/cli.py sync-envs
+#
+# To preview what would be synced:
+#   docker compose exec app python src/cli.py sync-envs --dry-run
+
+environments:
+  # Demo environment using defaults (for testing)
+  # This will be created with placeholder values if no env vars are set
+  demo-aws:
+    provider: AWS
+    credentials:
+      aws_access_key_id: ${AWS_ACCESS_KEY_ID:-AKIAIOSFODNN7EXAMPLE}
+      aws_secret_access_key: ${AWS_SECRET_ACCESS_KEY:-wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY}
+    config:
+      region: ${DEMO_AWS_REGION:-us-east-1}
+      description: "Demo environment for testing YAML sync"
+  
+  dev-gcp:
+    provider: GCP
+    credentials:
+      service_account_json: ${GCP_SERVICE_ACCOUNT_JSON:?GCP service account required}
+    config:
+      location: us-central1
+      description: "Demo environment for testing YAML sync"
+
+  # Example AWS Environment (commented - uncomment and set env vars to use)
+  # aws-production:
+  #   provider: AWS
+  #   credentials:
+  #     aws_access_key_id: ${AWS_PROD_ACCESS_KEY_ID}
+  #     aws_secret_access_key: ${AWS_PROD_SECRET_ACCESS_KEY}
+  #   config:
+  #     region: ${AWS_REGION:-us-east-1}
+  #     account_alias: "production"
+  
+  # Example GCP Environment
+  # gcp-production:
+  #   provider: GCP
+  #   credentials:
+  #     # Service account JSON can be passed as an env var
+  #     service_account_json: ${GCP_SERVICE_ACCOUNT_JSON:?GCP service account required}
+  #   config:
+  #     project_id: ${GCP_PROJECT_ID}
+  #     location: us-central1

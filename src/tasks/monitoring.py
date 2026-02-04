@@ -32,9 +32,23 @@ def monitor_active_canaries():
                 monitor = monitor_factory.get_monitor(env)
                 
                 end_time = datetime.datetime.utcnow()
-                start_time = end_time - datetime.timedelta(minutes=60)
+                
+                # Dynamic interval based on last check
+                if canary.last_checked_at:
+                    start_time = canary.last_checked_at
+                    # Safety buffer: If last check was > 24 hours ago, cap it to avoid huge queries
+                    if (end_time - start_time) > datetime.timedelta(hours=24):
+                        logger.warning(f"Last check for {canary.name} was > 24h ago. Capping to 24h.")
+                        start_time = end_time - datetime.timedelta(hours=24)
+                else:
+                    # Default for new canaries
+                    start_time = end_time - datetime.timedelta(minutes=60)
                 
                 alerts = monitor.check(canary, start_time, end_time)
+
+                # Update checkpoint
+                canary.last_checked_at = end_time
+                db.commit()
                 
                 if alerts:
                     logger.warning(f"Access detected on {canary.name} (Found {len(alerts)} events)")

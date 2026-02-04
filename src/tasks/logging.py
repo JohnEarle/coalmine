@@ -4,14 +4,16 @@ Logging resource management tasks - CloudTrail and GCP Audit Sink.
 from ..celery_app import celery_app
 from ..models import (
     SessionLocal, LoggingResource, LoggingProviderType, 
-    ResourceStatus, CloudEnvironment, ResourceType
+    ResourceStatus, CloudEnvironment, ResourceType, ActionType
 )
 from ..tofu_manager import TofuManager
 from ..logging_config import get_logger
 from .helpers import (
     TOFU_BASE_DIR, STATE_BASE_DIR, 
-    _build_env_vars, _get_backend_config
+    _get_execution_env, _get_backend_config,
+    _get_template_name
 )
+from .lifecycle import ResourceLifecycleManager
 from ..logging_utils import _update_trail_selectors, _update_gcp_sink_filter
 import os
 import json
@@ -25,16 +27,21 @@ logger = get_logger(__name__)
 
 @celery_app.task
 def create_logging_resource(name: str, provider_type_str: str, environment_id_str: str, config: dict = None):
-    """Create a logging resource (CloudTrail or GCP Audit Sink)."""
+    """
+    Create a logging resource (CloudTrail or GCP Audit Sink).
+    
+    Guarantees:
+    - Single atomic commit on success
+    - Cloud resource cleanup on failure (compensating transaction)
+    """
     import uuid
-    db = SessionLocal()
-    try:
+    with ResourceLifecycleManager(action_type=ActionType.CREATE) as ctx:
         provider_type = LoggingProviderType(provider_type_str)
-        env_obj = db.query(CloudEnvironment).filter(CloudEnvironment.id == uuid.UUID(environment_id_str)).first()
+        env_obj = ctx.db.query(CloudEnvironment).filter(CloudEnvironment.id == uuid.UUID(environment_id_str)).first()
         if not env_obj:
             raise ValueError(f"Environment {environment_id_str} not found")
 
-        # Create Record
+        # Create Record in CREATING state
         log_res = LoggingResource(
             name=name,
             provider_type=provider_type,
@@ -42,90 +49,56 @@ def create_logging_resource(name: str, provider_type_str: str, environment_id_st
             configuration=config or {},
             status=ResourceStatus.CREATING
         )
-        db.add(log_res)
-        db.commit()
-        db.refresh(log_res)
+        ctx.db.add(log_res)
+        ctx.db.flush()
+        log_res_id = log_res.id
+        ctx.resource = log_res
 
-        if provider_type == LoggingProviderType.AWS_CLOUDTRAIL:
-            template_path = os.path.join(TOFU_BASE_DIR, "aws_central_trail")
-            work_dir = os.path.join(STATE_BASE_DIR, str(log_res.id))
-            
-            manager = TofuManager(template_path, work_dir)
-            exec_env = _build_env_vars(env_obj)
-            
-            backend_config = _get_backend_config(str(log_res.id))
-            manager.init(env=exec_env, backend_config=backend_config)
-            
-            vars_dict = {"name": name}
-            if config:
-                vars_dict.update(config)
-            
-            output = manager.apply(vars_dict, env=exec_env)
-            
-            # Explicitly create a copy to ensure SQLAlchemy detects change
-            conf = dict(log_res.configuration)
-            conf["trail_name"] = name
-            conf["tofu_output"] = output
-            log_res.configuration = conf
-            
-            plan_code, plan_out = manager.plan(vars_dict, env=exec_env, detailed_exitcode=True)
-            if plan_code != 0:
-                 raise Exception(f"Verification Failed for Logging Resource. Tofu Plan ExitCode: {plan_code}")
-                 
-            log_res.status = ResourceStatus.ACTIVE
-            db.commit()
-            logger.info(f"Logging Resource {name} created and verified.")
+        # Unified Logic using ResourceRegistry
+        from ..resources.registry import ResourceRegistry
+        handler = ResourceRegistry.get_handler(provider_type)
+        
+        template_name = _get_template_name(provider_type)
+        exec_env = _get_execution_env(env_obj)
+        
+        ctx.init_tofu(template_name, exec_env)
+        
+        # Prepare Environment Config (Project ID, etc)
+        env_conf = env_obj.config.copy() if (env_obj and env_obj.config) else {}
+        if env_obj and env_obj.credentials and "project_id" in env_obj.credentials and "project_id" not in env_conf:
+                env_conf["project_id"] = env_obj.credentials["project_id"]
 
-        elif provider_type == LoggingProviderType.GCP_AUDIT_SINK:
-            template_path = os.path.join(TOFU_BASE_DIR, "gcp_audit_sink")
-            work_dir = os.path.join(STATE_BASE_DIR, str(log_res.id))
-            
-            manager = TofuManager(template_path, work_dir)
-            exec_env = _build_env_vars(env_obj)
-            
-            backend_config = _get_backend_config(str(log_res.id))
-            manager.init(env=exec_env, backend_config=backend_config)
-            
-            vars_dict = {"name": name}
-            if env_obj.config and "project_id" in env_obj.config:
-                 vars_dict["project_id"] = env_obj.config["project_id"]
-            if env_obj.credentials and "project_id" in env_obj.credentials:
-                 vars_dict["project_id"] = env_obj.credentials["project_id"]
-            
-            if config:
-                vars_dict.update(config)
+        # Ensure project_id is passed if available in environment (Env Var fallback)
+        if "project_id" not in env_conf and "GOOGLE_CLOUD_PROJECT" in exec_env:
+                env_conf["project_id"] = exec_env["GOOGLE_CLOUD_PROJECT"]
 
-            if "project_id" not in vars_dict:
-                 raise ValueError("project_id must be provided in env config or credentials for GCP_AUDIT_SINK")
-
-            output = manager.apply(vars_dict, env=exec_env)
+        vars_dict = handler.get_tform_vars(name, env_conf, config or {})
+        
+        output = ctx.apply(vars_dict)
+        
+        # Capture Outputs and update configuration
+        try:
+            outputs_json = ctx.manager.output()
+            current_conf = dict(log_res.configuration) if log_res.configuration else {}
             
-            # Explicitly create a copy to ensure SQLAlchemy detects change
-            conf = dict(log_res.configuration)
-            outputs_json = manager.output()
+            # Merge outputs into config
             for k, v in outputs_json.items():
-                 conf[k] = v.get("value")
+                current_conf[k] = v.get("value")
             
-            conf["tofu_output"] = output
-            log_res.configuration = conf
+            # Store Tofu stdout
+            current_conf["tofu_output"] = output
             
-            plan_code, plan_out = manager.plan(vars_dict, env=exec_env, detailed_exitcode=True)
-            if plan_code != 0:
-                 raise Exception(f"Verification Failed for GCP Sink. Tofu Plan ExitCode: {plan_code}")
-                 
-            log_res.status = ResourceStatus.ACTIVE
-            db.commit()
-            logger.info(f"Logging Resource {name} (GCP Sink) created and verified.")
+            # Additional CloudTrail specific field (legacy support)
+            if provider_type == LoggingProviderType.AWS_CLOUDTRAIL:
+                current_conf["trail_name"] = name
+                
+            log_res.configuration = current_conf
+        except Exception as e:
+            logger.warning(f"Failed to retrieve outputs for {name}: {e}")
 
-        else:
-            log_res.status = ResourceStatus.ACTIVE
-            db.commit()
-
-    except Exception as e:
-        logger.error(f"Error creating logging resource: {e}")
-        db.rollback()
-        log_res.status = ResourceStatus.ERROR
-        db.commit()
-        raise e
-    finally:
-        db.close()
+        ctx.verify_plan()
+                
+        log_res.status = ResourceStatus.ACTIVE
+        logger.info(f"Logging Resource {name} created and verified.")
+        
+        # ctx exit will commit
