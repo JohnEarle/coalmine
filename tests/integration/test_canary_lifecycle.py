@@ -1,3 +1,9 @@
+"""
+Integration tests for canary lifecycle operations.
+
+These tests verify create, rotate, and delete canary workflows
+with mocked cloud providers.
+"""
 import pytest
 import os
 from unittest.mock import MagicMock, patch
@@ -19,8 +25,9 @@ def db():
         yield db
     finally:
         db.close()
-        # Base.metadata.drop_all(bind=engine) # Keep for debugging if needed, or drop
 
+
+@pytest.mark.integration
 @patch("src.tasks.canary.SessionLocal")
 @patch("src.tasks.canary.TofuManager")
 def test_create_canary(MockTofuManager, MockSessionLocal, db):
@@ -50,6 +57,7 @@ def test_create_canary(MockTofuManager, MockSessionLocal, db):
     assert history is not None
     assert history.action.value == "CREATE"
 
+@pytest.mark.integration
 @patch("src.tasks.canary.SessionLocal")
 @patch("src.tasks.canary.TofuManager")
 def test_rotate_canary(MockTofuManager, MockSessionLocal, db):

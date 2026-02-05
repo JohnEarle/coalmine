@@ -10,6 +10,28 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from src.models import Base, CloudEnvironment, LoggingResource, LoggingProviderType, ResourceStatus
 
+# =============================================================================
+# Unit Test Fixtures (In-Memory SQLite - Fast, Isolated)
+# =============================================================================
+
+@pytest.fixture
+def isolated_db():
+    """
+    Creates a fresh in-memory SQLite database for each test.
+    Use this for fast, isolated unit tests that don't need real DB.
+    """
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    yield session
+    session.close()
+
+
+# =============================================================================
+# Integration Test Fixtures (PostgreSQL - Shared with App)
+# =============================================================================
+
 # Use the same DB URL as the app
 DATABASE_URL = os.getenv("DATABASE_URL")
 
@@ -22,8 +44,7 @@ def tables(engine):
     # Ensure tables exist (fast check)
     Base.metadata.create_all(bind=engine)
     yield
-    # We don't drop tables to preserve dev state, or we could if we want a clean slate.
-    # For now, relying on transaction rollback in per-test fixture.
+    # We don't drop tables to preserve dev state
 
 @pytest.fixture
 def db_session(engine, tables):

@@ -16,9 +16,14 @@ RUN curl --proto '=https' --tlsv1.2 -fsSL https://get.opentofu.org/install-opent
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy and install package (includes dependencies from pyproject.toml)
+COPY pyproject.toml README.md ./
+COPY src/ ./src/
 
+# Install in editable mode with dev dependencies (includes pytest)
+RUN pip install --no-cache-dir -e ".[dev]"
+
+# Copy remaining files
 COPY . .
 
 # Set standard entrypoint for DB init

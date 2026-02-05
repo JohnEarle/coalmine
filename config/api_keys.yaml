@@ -1,0 +1,32 @@
+# API Keys Configuration
+# =======================
+#
+# Define API keys with environment variable support:
+#   - ${VAR_NAME}           - Required, fails if not set
+#   - ${VAR_NAME:-default}  - Optional with default value
+#   - ${VAR_NAME:?error}    - Required with custom error message
+#
+# Permissions: read, write, admin
+# Scopes: canaries, environments, logging, alerts, all
+
+api_keys:
+  # Production automation key
+  automation:
+    key: ${COALMINE_API_KEY_AUTOMATION:?Automation API key required}
+    permissions: [read, write]
+    scopes: [canaries, logging]
+    description: "CI/CD pipeline automation"
+  
+  # Read-only dashboard key  
+  dashboard:
+    key: ${COALMINE_API_KEY_DASHBOARD:-readonly-dev-key}
+    permissions: [read]
+    scopes: [all]
+    description: "Monitoring dashboard access"
+  
+  # Uncomment for admin access
+  # admin:
+  #   key: ${COALMINE_ADMIN_API_KEY}
+  #   permissions: [read, write, admin]
+  #   scopes: [all]
+  #   description: "Full administrative access"
