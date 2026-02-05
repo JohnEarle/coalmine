@@ -10,5 +10,7 @@ google-cloud-resource-manager
 pyyaml  # For YAML config loading
 pydantic>=2.0.0
 pytest
+pytest-asyncio
+httpx  # Required for FastAPI TestClient
 fastapi>=0.100.0
 uvicorn[standard]
