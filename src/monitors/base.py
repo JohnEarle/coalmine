@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import List, Dict
 from datetime import datetime
 import uuid
-from ..models import CanaryResource, CloudEnvironment
+from ..models import CanaryResource, Account
 
 class Alert:
     def __init__(self, resource_name: str, event_time: datetime, event_name: str, source_ip: str, user_agent: str, external_id: str = None, raw_data: dict = None):
@@ -24,8 +24,8 @@ class Alert:
         }
 
 class AccessMonitor(ABC):
-    def __init__(self, environment: CloudEnvironment):
-        self.environment = environment
+    def __init__(self, account: Account):
+        self.account = account
 
     @abstractmethod
     def check(self, resource: CanaryResource, start_time: datetime, end_time: datetime) -> List[Alert]:
@@ -33,3 +33,4 @@ class AccessMonitor(ABC):
         Check for access events for the given resource within the time window.
         """
         pass
+

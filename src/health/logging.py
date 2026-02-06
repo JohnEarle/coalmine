@@ -3,7 +3,7 @@ from .base import HealthCheck
 from ..models import LoggingResource, LoggingProviderType
 from ..tasks.helpers import (
     TOFU_BASE_DIR, STATE_BASE_DIR,
-    _build_env_vars, _get_backend_config
+    _get_execution_env, _get_backend_config
 )
 from ..tofu_manager import TofuManager
 import os
@@ -24,16 +24,21 @@ class LoggingHealthCheck(HealthCheck):
             work_dir = os.path.join(STATE_BASE_DIR, str(resource.id))
             
             manager = TofuManager(template_path, work_dir)
-            env = resource.environment
-            exec_env = _build_env_vars(env)
+            account = resource.account
+            exec_env = _get_execution_env(account)
             
             backend_config = _get_backend_config(str(resource.id))
             manager.init(env=exec_env, backend_config=backend_config)
             
-            # Prepare Environment Config (Project ID, etc)
-            env_conf = env.config.copy() if (env and env.config) else {}
-            if env and env.credentials and "project_id" in env.credentials and "project_id" not in env_conf:
-                    env_conf["project_id"] = env.credentials["project_id"]
+            # Prepare Account Config (Project ID, etc)
+            env_conf = {}
+            if account:
+                cred = account.credential
+                if cred and cred.secrets and "project_id" in cred.secrets:
+                    env_conf["project_id"] = cred.secrets["project_id"]
+                # Use account_id as project_id for GCP if not set
+                if "project_id" not in env_conf and account.account_id:
+                    env_conf["project_id"] = account.account_id
 
             # Ensure project_id is passed if available in environment (Env Var fallback)
             if "project_id" not in env_conf and "GOOGLE_CLOUD_PROJECT" in exec_env:
@@ -52,3 +57,4 @@ class LoggingHealthCheck(HealthCheck):
 
         except Exception as e:
             return False, f"Validation Exception: {e}"
+

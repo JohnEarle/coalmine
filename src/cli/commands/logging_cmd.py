@@ -1,10 +1,9 @@
-"""Logging resource CLI commands."""
+"""Logging resource CLI commands.
+
+Economy of mechanism: Uses LoggingResourceService for all operations.
+"""
 import json
-import boto3
-import uuid as uuid_module
-from src.tasks import create_logging_resource
-from src.models import SessionLocal, LoggingResource, CloudEnvironment
-from ..utils import parse_json_arg
+from src.services import LoggingResourceService
 
 
 def register_commands(parent_subparsers):
@@ -20,7 +19,7 @@ def register_commands(parent_subparsers):
     parser_create = subparsers.add_parser("create", help="Create a logging resource")
     parser_create.add_argument("name", help="Name of the logging resource")
     parser_create.add_argument("type", help="Type: AWS_CLOUDTRAIL, GCP_AUDIT_SINK")
-    parser_create.add_argument("--env", help="Environment ID (UUID)", required=True)
+    parser_create.add_argument("--account", help="Account name or ID", required=True)
     parser_create.add_argument("--config", help="JSON string for configuration")
     parser_create.set_defaults(func=handle_create)
 
@@ -30,83 +29,72 @@ def register_commands(parent_subparsers):
 
     # scan (was scan_trails)
     parser_scan = subparsers.add_parser("scan", help="Scan existing CloudTrails/LogGroups")
-    parser_scan.add_argument("--env", help="Environment ID (UUID)", required=True)
+    parser_scan.add_argument("--account", help="Account name or ID", required=True)
     parser_scan.set_defaults(func=handle_scan)
 
 
 def handle_create(args):
     """Handle 'logs create' command."""
-    config = parse_json_arg(args.config, "config") if args.config else None
-
+    config = None
+    if args.config:
+        try:
+            config = json.loads(args.config)
+        except json.JSONDecodeError as e:
+            print(f"Error parsing config JSON: {e}")
+            return
+    
     print(f"Queueing logging resource {args.name}...")
-    create_logging_resource.delay(
-        name=args.name,
-        provider_type_str=args.type,
-        environment_id_str=args.env,
-        config=config
-    )
-    print("Task queued.")
+    
+    with LoggingResourceService() as svc:
+        result = svc.create(
+            name=args.name,
+            provider_type=args.type,
+            account_id=args.account,
+            config=config
+        )
+        
+        if result.success:
+            print("Task queued.")
+        else:
+            print(f"Error: {result.error}")
 
 
 def handle_list(args):
     """Handle 'logs list' command."""
-    db = SessionLocal()
-    try:
-        logs = db.query(LoggingResource).all()
-        print(f"{'ID':<38} | {'Name':<20} | {'Type':<15} | {'Status':<10} | {'Env':<38}")
-        print("-" * 135)
-        for log in logs:
-            print(f"{str(log.id):<38} | {log.name:<20} | {log.provider_type.value:<15} | {log.status.value:<10} | {str(log.environment_id):<38}")
-    finally:
-        db.close()
+    with LoggingResourceService() as svc:
+        result = svc.list()
+        
+        if not result.items:
+            print("No logging resources configured.")
+            return
+        
+        print(f"{'ID':<38} | {'Name':<20} | {'Type':<15} | {'Account':<20} | {'Status'}")
+        print("-" * 120)
+        for log in result.items:
+            account_name = log.account.name if log.account else "N/A"
+            print(f"{str(log.id):<38} | {log.name:<20} | {log.provider_type.value:<15} | {account_name:<20} | {log.status.value}")
 
 
 def handle_scan(args):
     """Handle 'logs scan' command - list available CloudTrails and LogGroups."""
-    db = SessionLocal()
-    try:
-        env_obj = db.query(CloudEnvironment).filter(
-            CloudEnvironment.id == uuid_module.UUID(args.env)
-        ).first()
-        if not env_obj:
-            print(f"Error: Environment {args.env} not found.")
+    with LoggingResourceService() as svc:
+        result = svc.scan(args.account)
+        
+        if not result.success:
+            print(f"Error: {result.error}")
             return
-
-        creds = env_obj.credentials
-        region = env_obj.config.get("region", "us-east-1")
-
-        if env_obj.provider_type == "AWS":
-            session = boto3.Session(
-                aws_access_key_id=creds.get("AWS_ACCESS_KEY_ID"),
-                aws_secret_access_key=creds.get("AWS_SECRET_ACCESS_KEY"),
-                region_name=region
-            )
-
-            print(f"--- CloudTrails in {region} ---")
-            ct = session.client("cloudtrail")
-            try:
-                trails = ct.describe_trails().get("trailList", [])
-                for t in trails:
-                    lg_arn = t.get("CloudWatchLogsLogGroupArn", "N/A")
-                    print(f"- Name: {t['Name']}")
-                    print(f"  ARN: {t['TrailARN']}")
-                    print(f"  Log Group: {lg_arn}")
-                    print("")
-            except Exception as e:
-                print(f"Error scanning trails: {e}")
-
-            print(f"--- CloudWatch Log Groups in {region} ---")
-            logs = session.client("logs")
-            try:
-                response = logs.describe_log_groups(limit=50)
-                for lg in response.get("logGroups", []):
-                    print(f"- Name: {lg['logGroupName']}")
-                    print(f"  ARN: {lg['arn']}")
-            except Exception as e:
-                print(f"Error scanning logs: {e}")
-
-        else:
-            print("Only AWS supported for logs scan currently.")
-
-    finally:
-        db.close()
+        
+        data = result.data
+        region = data.get("region", "unknown")
+        
+        print(f"--- CloudTrails in {region} ---")
+        for t in data.get("trails", []):
+            print(f"- Name: {t['name']}")
+            print(f"  ARN: {t['arn']}")
+            print(f"  Log Group: {t['log_group_arn']}")
+            print("")
+        
+        print(f"--- CloudWatch Log Groups in {region} ---")
+        for lg in data.get("log_groups", []):
+            print(f"- Name: {lg['name']}")
+            print(f"  ARN: {lg['arn']}")

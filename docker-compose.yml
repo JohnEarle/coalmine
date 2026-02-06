@@ -23,14 +23,21 @@ services:
 
   app:
     build: .
+    ports:
+      - "8000:8000"
     volumes:
       - .:/app
+      # Mount webui dist separately for development hot-reload
+      - ./webui/dist:/app/webui/dist:ro
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - DATABASE_URL=postgresql://${POSTGRES_USER:-coalmine}:${POSTGRES_PASSWORD:-coalmine_dev}@postgres:5432/${POSTGRES_DB:-coalmine}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FORMAT=${LOG_FORMAT:-json}
+      # WebUI Session Authentication
+      - WEBUI_ADMIN_USER=${WEBUI_ADMIN_USER:-admin}
+      - WEBUI_ADMIN_PASSWORD=${WEBUI_ADMIN_PASSWORD:-}
       # AWS/GCP Credentials - pass via .env file or host environment
       - AWS_ACCESS_KEY_ID
       - AWS_SECRET_ACCESS_KEY
@@ -42,7 +49,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: python -m src.main
+    command: uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
 
   worker:
     build: .

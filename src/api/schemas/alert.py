@@ -10,8 +10,10 @@ class AlertResponse(BaseModel):
     canary_id: str
     canary_name: Optional[str] = None
     external_id: str
-    event_type: str
+    event_name: Optional[str] = None
     source_ip: Optional[str] = None
+    user_agent: Optional[str] = None
+    timestamp: Optional[datetime] = None
     status: str
     created_at: Optional[datetime] = None
 

@@ -14,7 +14,7 @@ from ..models import ActionType
 # Re-export helpers that may be used by external code
 from .helpers import (
     TOFU_BASE_DIR, STATE_BASE_DIR,
-    _build_env_vars, _get_template_name, _get_backend_config
+    _get_execution_env, _get_template_name, _get_backend_config
 )
 
 __all__ = [

@@ -4,20 +4,80 @@ Canary Management API Routes
 Provides endpoints for creating, listing, deleting canaries and managing credentials.
 """
 from fastapi import APIRouter, Depends, HTTPException
-from typing import List
+from pydantic import BaseModel
+from typing import Optional, List
+from datetime import datetime
 
-from ..auth import require_permission, require_scope, get_current_key
-from ..schemas.canary import (
-    CanaryCreate, CanaryResponse, CanaryListResponse, 
-    CredentialsResponse, TriggerResponse
-)
-from ...cli.utils import resolve_canary, get_db_session
-from ...models import CanaryResource
-from ...tasks import create_canary as create_canary_task, delete_canary as delete_canary_task
-from ...triggers import get_trigger
+from ..auth import require_permission, require_scope
+from src.services import CanaryService
 
 router = APIRouter(prefix="/canaries")
 
+
+# =============================================================================
+# Schemas
+# =============================================================================
+
+class CanaryCreate(BaseModel):
+    """Request schema for creating a canary."""
+    name: str
+    resource_type: str
+    account_id: str  # UUID or name of the account
+    logging_id: str
+    interval: int = 0
+    params: Optional[dict] = None
+
+
+class CanaryResponse(BaseModel):
+    """Response schema for canary data."""
+    id: str
+    name: str
+    resource_type: str
+    status: str
+    account_id: Optional[str] = None
+    account_name: Optional[str] = None
+    current_resource_id: Optional[str] = None
+    expires_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+
+    @classmethod
+    def from_model(cls, canary):
+        """Create response from CanaryResource model."""
+        return cls(
+            id=str(canary.id),
+            name=canary.name,
+            resource_type=canary.resource_type.value,
+            status=canary.status.value,
+            account_id=str(canary.account_id) if canary.account_id else None,
+            account_name=canary.account.name if canary.account else None,
+            current_resource_id=canary.current_resource_id,
+            expires_at=canary.expires_at,
+            created_at=canary.created_at
+        )
+
+
+class CanaryListResponse(BaseModel):
+    """Response schema for list of canaries."""
+    canaries: List[CanaryResponse]
+    total: int
+
+
+class CredentialsResponse(BaseModel):
+    """Response schema for canary credentials."""
+    canary_id: str
+    canary_name: str
+    credentials: Optional[dict] = None
+
+
+class TriggerResponse(BaseModel):
+    """Response schema for trigger action."""
+    success: bool
+    message: str
+
+
+# =============================================================================
+# Endpoints
+# =============================================================================
 
 @router.post(
     "/",
@@ -34,15 +94,20 @@ async def create_canary(payload: CanaryCreate):
     
     The canary will be created asynchronously via a Celery task.
     """
-    create_canary_task.delay(
-        name=payload.name,
-        resource_type_str=payload.resource_type,
-        interval_seconds=payload.interval,
-        environment_id_str=payload.environment_id,
-        module_params=payload.params,
-        logging_resource_id_str=payload.logging_id
-    )
-    return {"status": "queued", "name": payload.name}
+    with CanaryService() as svc:
+        result = svc.create(
+            name=payload.name,
+            resource_type=payload.resource_type,
+            account_id=payload.account_id,
+            logging_id=payload.logging_id,
+            interval=payload.interval,
+            params=payload.params
+        )
+        
+        if not result.success:
+            raise HTTPException(status_code=400, detail=result.error)
+        
+        return result.data
 
 
 @router.get(
@@ -53,26 +118,13 @@ async def create_canary(payload: CanaryCreate):
 )
 async def list_canaries():
     """Retrieve a list of all canary resources."""
-    db = get_db_session()
-    try:
-        canaries = db.query(CanaryResource).all()
+    with CanaryService() as svc:
+        result = svc.list()
+        
         return CanaryListResponse(
-            canaries=[
-                CanaryResponse(
-                    id=str(c.id),
-                    name=c.name,
-                    resource_type=c.resource_type.value,
-                    status=c.status.value,
-                    current_resource_id=c.current_resource_id,
-                    expires_at=c.expires_at,
-                    created_at=c.created_at
-                )
-                for c in canaries
-            ],
-            total=len(canaries)
+            canaries=[CanaryResponse.from_model(c) for c in result.items],
+            total=result.total
         )
-    finally:
-        db.close()
 
 
 @router.get(
@@ -83,23 +135,13 @@ async def list_canaries():
 )
 async def get_canary(canary_id: str):
     """Retrieve details for a specific canary by ID or name."""
-    db = get_db_session()
-    try:
-        canary = resolve_canary(db, canary_id)
-        if not canary:
-            raise HTTPException(status_code=404, detail=f"Canary '{canary_id}' not found")
+    with CanaryService() as svc:
+        result = svc.get(canary_id)
         
-        return CanaryResponse(
-            id=str(canary.id),
-            name=canary.name,
-            resource_type=canary.resource_type.value,
-            status=canary.status.value,
-            current_resource_id=canary.current_resource_id,
-            expires_at=canary.expires_at,
-            created_at=canary.created_at
-        )
-    finally:
-        db.close()
+        if not result.success:
+            raise HTTPException(status_code=404, detail=result.error)
+        
+        return CanaryResponse.from_model(result.data)
 
 
 @router.delete(
@@ -117,16 +159,13 @@ async def delete_canary(canary_id: str):
     
     The canary will be deleted asynchronously via a Celery task.
     """
-    db = get_db_session()
-    try:
-        canary = resolve_canary(db, canary_id)
-        if not canary:
-            raise HTTPException(status_code=404, detail=f"Canary '{canary_id}' not found")
+    with CanaryService() as svc:
+        result = svc.delete(canary_id)
         
-        delete_canary_task.delay(str(canary.id))
-        return {"status": "queued", "id": str(canary.id), "name": canary.name}
-    finally:
-        db.close()
+        if not result.success:
+            raise HTTPException(status_code=404, detail=result.error)
+        
+        return result.data
 
 
 @router.get(
@@ -140,19 +179,13 @@ async def delete_canary(canary_id: str):
 )
 async def get_credentials(canary_id: str):
     """Retrieve stored credentials for a canary."""
-    db = get_db_session()
-    try:
-        canary = resolve_canary(db, canary_id)
-        if not canary:
-            raise HTTPException(status_code=404, detail=f"Canary '{canary_id}' not found")
+    with CanaryService() as svc:
+        result = svc.get_credentials(canary_id)
         
-        return CredentialsResponse(
-            canary_id=str(canary.id),
-            canary_name=canary.name,
-            credentials=canary.canary_credentials
-        )
-    finally:
-        db.close()
+        if not result.success:
+            raise HTTPException(status_code=404, detail=result.error)
+        
+        return CredentialsResponse(**result.data)
 
 
 @router.post(
@@ -170,23 +203,10 @@ async def trigger_canary(canary_id: str):
     
     This is useful for testing detection pipelines.
     """
-    db = get_db_session()
-    try:
-        canary = resolve_canary(db, canary_id)
-        if not canary:
-            raise HTTPException(status_code=404, detail=f"Canary '{canary_id}' not found")
+    with CanaryService() as svc:
+        result = svc.trigger(canary_id)
         
-        trigger = get_trigger(canary.resource_type)
-        if not trigger:
-            raise HTTPException(
-                status_code=501,
-                detail=f"No trigger implementation for type {canary.resource_type.value}"
-            )
+        if not result.success:
+            raise HTTPException(status_code=400, detail=result.error)
         
-        success = trigger.execute(canary)
-        return TriggerResponse(
-            success=success,
-            message="Trigger executed. Events may take a few minutes to appear." if success else "Trigger execution failed"
-        )
-    finally:
-        db.close()
+        return TriggerResponse(**result.data)

@@ -52,6 +52,27 @@ class AlertStatus(enum.Enum):
     RESOLVED = "RESOLVED"
 
 
+class CredentialAuthType(enum.Enum):
+    """How the credential authenticates to cloud providers."""
+    STATIC = "STATIC"           # Direct access keys / SA JSON
+    ASSUME_ROLE = "ASSUME_ROLE" # AWS: assume into target accounts
+    IMPERSONATE = "IMPERSONATE" # GCP: impersonate target SAs
+
+
+class CredentialScope(enum.Enum):
+    """What accounts this credential can access."""
+    SINGLE = "SINGLE"           # One account only
+    MULTI = "MULTI"             # Specific list of accounts
+    ORGANIZATION = "ORGANIZATION"  # All accounts in org (with discovery)
+
+
+class AccountSource(enum.Enum):
+    """How the account was added to Coalmine."""
+    MANUAL = "MANUAL"           # User added manually
+    DISCOVERED = "DISCOVERED"   # Auto-discovered from org
+    MIGRATED = "MIGRATED"       # Migrated from CloudEnvironment
+
+
 # For PostgreSQL, we use SqlEnum with create_constraint=False to prevent auto-creation
 # of the type (we handle that in init_db to avoid race conditions).
 # For SQLite, we use the default SqlEnum behavior.
@@ -74,6 +95,9 @@ _logging_provider_type_col = lambda: _make_enum_column(LoggingProviderType, 'log
 _resource_status_col = lambda: _make_enum_column(ResourceStatus, 'resourcestatus')
 _action_type_col = lambda: _make_enum_column(ActionType, 'actiontype')
 _alert_status_col = lambda: _make_enum_column(AlertStatus, 'alertstatus')
+_credential_auth_type_col = lambda: _make_enum_column(CredentialAuthType, 'credentialauthtype')
+_credential_scope_col = lambda: _make_enum_column(CredentialScope, 'credentialscope')
+_account_source_col = lambda: _make_enum_column(AccountSource, 'accountsource')
 
 # Keep PgEnum definitions for explicit type creation in init_db()
 if _is_postgres:
@@ -102,25 +126,106 @@ if _is_postgres:
         name='alertstatus',
         create_type=False
     )
+    _pg_credential_auth_type = PgEnum(
+        *[e.value for e in CredentialAuthType],
+        name='credentialauthtype',
+        create_type=False
+    )
+    _pg_credential_scope = PgEnum(
+        *[e.value for e in CredentialScope],
+        name='credentialscope',
+        create_type=False
+    )
+    _pg_account_source = PgEnum(
+        *[e.value for e in AccountSource],
+        name='accountsource',
+        create_type=False
+    )
 else:
     _pg_resource_type = None
     _pg_logging_provider_type = None
     _pg_resource_status = None
     _pg_action_type = None
     _pg_alert_status = None
+    _pg_credential_auth_type = None
+    _pg_credential_scope = None
+    _pg_account_source = None
 
-class CloudEnvironment(Base):
-    __tablename__ = 'cloud_environments'
+
+# =============================================================================
+# NEW: Credential/Account Abstraction for Multi-Account Support
+# =============================================================================
+
+class Credential(Base):
+    """
+    A reusable authentication source that can access one or more cloud accounts.
+    
+    Credentials are managed separately from deployment targets (Accounts).
+    One credential can authenticate to many accounts (1:N relationship).
+    
+    The scope of a credential (single account vs organization) is auto-detected
+    by attempting organization API calls during discovery.
+    """
+    __tablename__ = 'credentials'
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    name = Column(String, nullable=False, unique=True)
-    provider_type = Column(String, nullable=False) 
-    credentials = Column(JSON, nullable=True)
-    config = Column(JSON, nullable=True)
+    name = Column(String, nullable=False, unique=True)  # "aws-org-admin", "gcp-corp-sa"
+    provider = Column(String, nullable=False)  # "AWS", "GCP", "AZURE"
+    
+    # Auth type determines how credentials are used
+    auth_type = Column(_credential_auth_type_col(), nullable=False, default=CredentialAuthType.STATIC)
+    
+    # Encrypted secrets (access keys, SA JSON, etc.)
+    secrets = Column(JSON, nullable=True)
+    
+    # Discovery configuration (optional)
+    # e.g., {"role_name": "CoalmineDeployer", "include_ous": [...], "org_id": "..."}
+    discovery_config = Column(JSON, nullable=True)
+    
     status = Column(_resource_status_col(), default=ResourceStatus.ACTIVE)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    
+    # Relationships
+    accounts = relationship("Account", back_populates="credential", cascade="all, delete-orphan")
 
-    resources = relationship("CanaryResource", back_populates="environment")
-    logging_resources = relationship("LoggingResource", back_populates="environment")
+
+class Account(Base):
+    """
+    A deployment target: AWS account, GCP project, or Azure subscription.
+    
+    Accounts can be manually defined or auto-discovered from an organization.
+    Each account references a Credential for authentication.
+    """
+    __tablename__ = 'accounts'
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    credential_id = Column(UUID(as_uuid=True), ForeignKey('credentials.id'), nullable=False)
+    
+    # Identifiers
+    name = Column(String, nullable=False, unique=True)  # Human-readable: "prod-east", "dev-sandbox"
+    account_id = Column(String, nullable=False)  # Cloud ID: "111111111111" or "my-project-id"
+    
+    # How was this account added?
+    source = Column(_account_source_col(), nullable=False, default=AccountSource.MANUAL)
+    
+    # Optional: Override default role/SA for this specific account
+    # If null, uses the credential's default (e.g., discovery_config.role_name)
+    role_override = Column(String, nullable=True)
+    
+    # Auto-discovered metadata (tags, OU path, project labels, etc.)
+    account_metadata = Column(JSON, nullable=True)  # tags, OU path, project labels
+    
+    # Is this account enabled for canary deployment?
+    is_enabled = Column(String, nullable=False, default="true")  # Using String for SQLite compat
+    
+    status = Column(_resource_status_col(), default=ResourceStatus.ACTIVE)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    
+    # Relationships
+    credential = relationship("Credential", back_populates="accounts")
+    canaries = relationship("CanaryResource", back_populates="account")
+    logging_resources = relationship("LoggingResource", back_populates="account")
+
 
 class LoggingResource(Base):
     __tablename__ = 'logging_resources'
@@ -129,8 +234,9 @@ class LoggingResource(Base):
     name = Column(String, nullable=False) # e.g. "central-trail-01"
     provider_type = Column(_logging_provider_type_col(), nullable=False)
     
-    environment_id = Column(UUID(as_uuid=True), ForeignKey('cloud_environments.id'), nullable=False)
-    environment = relationship("CloudEnvironment", back_populates="logging_resources")
+    # Link to Account for deployment target
+    account_id = Column(UUID(as_uuid=True), ForeignKey('accounts.id'), nullable=True)
+    account = relationship("Account", back_populates="logging_resources")
     
     # Configuration (e.g. Trail Name, Log Group Path, Project ID)
     configuration = Column(JSON, nullable=True)
@@ -147,8 +253,9 @@ class CanaryResource(Base):
     name = Column(String, nullable=False)
     resource_type = Column(_resource_type_col(), nullable=False)
     
-    environment_id = Column(UUID(as_uuid=True), ForeignKey('cloud_environments.id'), nullable=True)
-    environment = relationship("CloudEnvironment", back_populates="resources")
+    # Link to Account for deployment target
+    account_id = Column(UUID(as_uuid=True), ForeignKey('accounts.id'), nullable=True)
+    account = relationship("Account", back_populates="canaries")
 
     # Logging Association
     logging_resource_id = Column(UUID(as_uuid=True), ForeignKey('logging_resources.id'), nullable=True)
@@ -214,6 +321,9 @@ def _create_pg_enums_if_not_exist(connection):
         (_pg_resource_status, 'resourcestatus'),
         (_pg_action_type, 'actiontype'),
         (_pg_alert_status, 'alertstatus'),
+        (_pg_credential_auth_type, 'credentialauthtype'),
+        (_pg_credential_scope, 'credentialscope'),
+        (_pg_account_source, 'accountsource'),
     ]
     
     for pg_enum, type_name in enum_types:

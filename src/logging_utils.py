@@ -9,21 +9,25 @@ import os
 
 logger = get_logger(__name__)
 
-def _update_trail_selectors(env_obj, trail_name, resource_arn, add: bool = True):
+def _update_trail_selectors(account, trail_name, resource_arn, add: bool = True):
     """
     Dynamically update CloudTrail Advanced Event Selectors to include/exclude a resource.
     """
-    if not env_obj or env_obj.provider_type != "AWS":
+    if not account:
+        return
+    
+    cred = account.credential
+    if not cred or cred.provider != "AWS":
         return
 
-    creds = env_obj.credentials or {}
-    region = env_obj.config.get("region", "us-east-1")
+    secrets = cred.secrets or {}
+    region = secrets.get("AWS_REGION") or secrets.get("region", "us-east-1")
     
     try:
         client = boto3.client(
             "cloudtrail",
-            aws_access_key_id=creds.get("AWS_ACCESS_KEY_ID"),
-            aws_secret_access_key=creds.get("AWS_SECRET_ACCESS_KEY"),
+            aws_access_key_id=secrets.get("AWS_ACCESS_KEY_ID") or secrets.get("aws_access_key_id"),
+            aws_secret_access_key=secrets.get("AWS_SECRET_ACCESS_KEY") or secrets.get("aws_secret_access_key"),
             region_name=region
         )
         
@@ -85,22 +89,25 @@ def _update_trail_selectors(env_obj, trail_name, resource_arn, add: bool = True)
         logger.error(f"Error updating trail selectors: {e}")
 
 
-def _update_gcp_sink_filter(env_obj, sink_name, resource_val, resource_type: ResourceType, add: bool = True):
+def _update_gcp_sink_filter(account, sink_name, resource_val, resource_type: ResourceType, add: bool = True):
     """
     Dynamically update GCP Log Sink filter to include/exclude a resource.
     For SA: protoPayload.authenticationInfo.principalEmail="{email}"
     For Bucket: protoPayload.resourceName:"{bucket_name}"
     """
-    if not env_obj or env_obj.provider_type != "GCP":
+    if not account:
+        return
+    
+    cred = account.credential
+    if not cred or cred.provider != "GCP":
         return
 
-    creds_wrapper = env_obj.credentials or {}
+    secrets = cred.secrets or {}
     
-    project_id = None
-    if env_obj.config:
-         project_id = env_obj.config.get("project_id")
-    if not project_id and "project_id" in creds_wrapper:
-         project_id = creds_wrapper["project_id"]
+    # Get project_id from account.account_id (for GCP this is the project ID)
+    project_id = account.account_id
+    if not project_id and "project_id" in secrets:
+         project_id = secrets["project_id"]
          
     if not project_id:
         logger.warning("Cannot update GCP sink: No project_id found.")
@@ -111,13 +118,13 @@ def _update_gcp_sink_filter(env_obj, sink_name, resource_val, resource_type: Res
         from google.oauth2 import service_account
         
         credentials = None
-        if "GOOGLE_CREDENTIALS_JSON" in creds_wrapper:
-             info = creds_wrapper["GOOGLE_CREDENTIALS_JSON"]
-             if isinstance(info, str):
-                 info = json.loads(info)
-             credentials = service_account.Credentials.from_service_account_info(info)
-        elif "type" in creds_wrapper and creds_wrapper["type"] == "service_account":
-             credentials = service_account.Credentials.from_service_account_info(creds_wrapper)
+        json_content = secrets.get("service_account_json") or secrets.get("GOOGLE_CREDENTIALS_JSON")
+        if json_content:
+             if isinstance(json_content, str):
+                 json_content = json.loads(json_content)
+             credentials = service_account.Credentials.from_service_account_info(json_content)
+        elif "type" in secrets and secrets["type"] == "service_account":
+             credentials = service_account.Credentials.from_service_account_info(secrets)
         
         client = logging.Client(project=project_id, credentials=credentials)
         sink = client.sink(sink_name)
@@ -166,3 +173,4 @@ def _update_gcp_sink_filter(env_obj, sink_name, resource_val, resource_type: Res
 
     except Exception as e:
         logger.error(f"Error updating GCP sink: {e}")
+

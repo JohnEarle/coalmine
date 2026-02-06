@@ -1,9 +1,9 @@
-"""Canary management CLI commands."""
+"""Canary management CLI commands.
+
+Economy of mechanism: Uses CanaryService for all operations.
+"""
 import json
-from src.tasks import create_canary as create_canary_task, delete_canary as delete_canary_task
-from src.models import SessionLocal, CanaryResource
-from src.triggers import get_trigger
-from ..utils import resolve_canary, parse_json_arg
+from src.services import CanaryService
 
 
 def register_commands(parent_subparsers):
@@ -21,7 +21,7 @@ def register_commands(parent_subparsers):
     parser_create.add_argument("type", help="Resource type (AWS_IAM_USER, AWS_BUCKET, GCP_SERVICE_ACCOUNT, GCP_BUCKET)")
     parser_create.add_argument("--interval", type=int, default=0,
                                help="Rotation interval in seconds (0 for static)")
-    parser_create.add_argument("--env", help="Environment ID (UUID)", required=True)
+    parser_create.add_argument("--account", help="Account name or ID (deployment target)", required=True)
     parser_create.add_argument("--logging-id", help="Logging Resource ID (UUID)", required=True)
     parser_create.add_argument("--params", help="JSON string for module parameters")
     parser_create.set_defaults(func=handle_create)
@@ -48,87 +48,102 @@ def register_commands(parent_subparsers):
 
 def handle_create(args):
     """Handle 'canary create' command."""
-    params = parse_json_arg(args.params, "params") if args.params else None
-
+    params = None
+    if args.params:
+        try:
+            params = json.loads(args.params)
+        except json.JSONDecodeError as e:
+            print(f"Error parsing params JSON: {e}")
+            return
+    
     print(f"Queueing creation of {args.name} ({args.type})...")
-    create_canary_task.delay(
-        name=args.name,
-        resource_type_str=args.type,
-        interval_seconds=args.interval,
-        environment_id_str=args.env,
-        module_params=params,
-        logging_resource_id_str=args.logging_id
-    )
-    print("Task queued.")
+    
+    with CanaryService() as svc:
+        result = svc.create(
+            name=args.name,
+            resource_type=args.type,
+            account_id=args.account,
+            logging_id=args.logging_id,
+            interval=args.interval,
+            params=params
+        )
+        
+        if result.success:
+            print("Task queued.")
+        else:
+            print(f"Error: {result.error}")
 
 
 def handle_list(args):
     """Handle 'canary list' command."""
-    db = SessionLocal()
-    try:
-        canaries = db.query(CanaryResource).all()
-        print(f"{'Name':<25} | {'Type':<20} | {'Status':<10} | {'Resource ID':<30} | {'Expires'}")
-        print("-" * 110)
-        for c in canaries:
+    with CanaryService() as svc:
+        result = svc.list()
+        
+        if not result.items:
+            print("No canaries configured.")
+            return
+        
+        print(f"{'Name':<25} | {'Type':<20} | {'Account':<20} | {'Status':<10} | {'Expires'}")
+        print("-" * 100)
+        for c in result.items:
             expires = c.expires_at.strftime("%Y-%m-%d %H:%M") if c.expires_at else "N/A"
-            print(f"{c.name:<25} | {c.resource_type.value:<20} | {c.status.value:<10} | {str(c.current_resource_id):<30} | {expires}")
-    finally:
-        db.close()
+            account_name = c.account.name if c.account else "N/A"
+            print(f"{c.name:<25} | {c.resource_type.value:<20} | {account_name:<20} | {c.status.value:<10} | {expires}")
 
 
 def handle_delete(args):
     """Handle 'canary delete' command."""
-    db = SessionLocal()
-    try:
-        canary = resolve_canary(db, args.name_or_id)
-        if not canary:
+    with CanaryService() as svc:
+        # First check if it exists
+        get_result = svc.get(args.name_or_id)
+        if not get_result.success:
             print(f"Error: Canary {args.name_or_id} not found.")
             return
-
+        
+        canary = get_result.data
         print(f"Queueing deletion of {canary.name} ({canary.id})...")
-        delete_canary_task.delay(str(canary.id))
-        print("Task queued.")
-    finally:
-        db.close()
+        
+        result = svc.delete(args.name_or_id)
+        
+        if result.success:
+            print("Task queued.")
+        else:
+            print(f"Error: {result.error}")
 
 
 def handle_creds(args):
     """Handle 'canary creds' command."""
-    db = SessionLocal()
-    try:
-        canary = db.query(CanaryResource).filter(CanaryResource.name == args.name).first()
-        if not canary:
-            print(f"Error: Canary {args.name} not found.")
+    with CanaryService() as svc:
+        result = svc.get_credentials(args.name)
+        
+        if not result.success:
+            print(f"Error: {result.error}")
             return
-
-        if not canary.canary_credentials:
+        
+        creds = result.data.get("credentials")
+        if not creds:
             print("No credentials stored for this canary.")
         else:
-            print(json.dumps(canary.canary_credentials, indent=2))
-    finally:
-        db.close()
+            print(json.dumps(creds, indent=2))
 
 
 def handle_trigger(args):
     """Handle 'canary trigger' command."""
-    db = SessionLocal()
-    try:
-        canary = resolve_canary(db, args.name_or_id)
-        if not canary:
+    with CanaryService() as svc:
+        get_result = svc.get(args.name_or_id)
+        if not get_result.success:
             print(f"Error: Canary {args.name_or_id} not found.")
             return
-
+        
+        canary = get_result.data
         print(f"Initiating trigger for {canary.name} ({canary.resource_type.value})...")
-
-        trigger = get_trigger(canary.resource_type)
-        if not trigger:
-            print(f"No trigger implementation found for type {canary.resource_type.value}")
-            return
-
-        success = trigger.execute(canary)
-        if success:
-            print("Trigger executed successfully. Events may take a few minutes to appear in logs.")
+        
+        result = svc.trigger(args.name_or_id)
+        
+        if result.success:
+            if result.data.get("success"):
+                print("Trigger executed successfully. Events may take a few minutes to appear in logs.")
+            else:
+                print("Trigger execution failed. Check logs for details.")
         else:
-            print("Trigger execution failed. Check logs for details.")
-    finally:
-        db.close()
+            print(f"Error: {result.error}")

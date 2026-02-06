@@ -1,11 +1,11 @@
 """
 Coalmine CLI - Command Line Interface
 
-This package provides the CLI for managing canary resources, cloud environments,
-logging configurations, and alerts.
+This package provides the CLI for managing canary resources, credentials,
+accounts, logging configurations, and alerts.
 
 Command structure: coalmine <resource> <action> [options]
-Resources: canary, env, logs, alerts
+Resources: canary, credentials, accounts, logs, alerts
 """
 import sys
 import os
@@ -14,7 +14,7 @@ import argparse
 # Ensure root is in path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from .commands import canary, environment, logging_cmd, alerts
+from .commands import canary, logging_cmd, alerts, credentials, accounts
 from .utils import print_custom_help
 
 
@@ -25,15 +25,18 @@ def run():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Resources:
-  canary    Manage canary resources (create, list, delete, trigger)
-  env       Manage cloud environments (create, list, sync)
-  logs      Manage logging resources (create, list, scan)
-  alerts    View security alerts
+  canary       Manage canary resources (create, list, delete, trigger)
+  credentials  Manage cloud credentials (list, add, update, remove, validate)
+  accounts     Manage cloud accounts (list, add, update, enable, disable, remove, validate)
+  logs         Manage logging resources (create, list, scan)
+  alerts       View security alerts
 
 Examples:
+  coalmine credentials list
+  coalmine credentials validate my-creds
+  coalmine accounts list --credential my-creds
+  coalmine accounts validate prod-east
   coalmine canary list
-  coalmine canary create my-canary AWS_IAM_USER --env <id> --logging-id <id>
-  coalmine env sync --dry-run
   coalmine alerts list --canary my-canary
 """
     )
@@ -41,7 +44,8 @@ Examples:
 
     # Register command groups from each module
     canary.register_commands(subparsers)
-    environment.register_commands(subparsers)
+    credentials.register_commands(subparsers)
+    accounts.register_commands(subparsers)
     logging_cmd.register_commands(subparsers)
     alerts.register_commands(subparsers)
 

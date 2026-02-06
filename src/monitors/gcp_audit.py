@@ -12,12 +12,16 @@ logger = get_logger(__name__)
 class GcpAuditMonitor(AccessMonitor):
     def _get_client(self):
         # We need to construct client from credentials dict if present
-        creds_wrapper = self.environment.credentials or {}
+        account = self.account
+        if not account or not account.credential:
+            return logging.Client()
+        
+        secrets = account.credential.secrets or {}
         
         # Support both uppercase and lowercase credential keys
-        creds_json = (creds_wrapper.get("GOOGLE_CREDENTIALS_JSON") or 
-                      creds_wrapper.get("google_credentials_json") or
-                      creds_wrapper.get("service_account_json"))
+        creds_json = (secrets.get("GOOGLE_CREDENTIALS_JSON") or 
+                      secrets.get("google_credentials_json") or
+                      secrets.get("service_account_json"))
         
         if creds_json:
              import json
@@ -31,9 +35,9 @@ class GcpAuditMonitor(AccessMonitor):
              return logging.Client(credentials=credentials)
              
         # Fallback to direct check if the wrapper IS the creds (legacy or different setup)
-        if "type" in creds_wrapper and creds_wrapper["type"] == "service_account":
+        if "type" in secrets and secrets["type"] == "service_account":
              from google.oauth2 import service_account
-             credentials = service_account.Credentials.from_service_account_info(creds_wrapper)
+             credentials = service_account.Credentials.from_service_account_info(secrets)
              return logging.Client(credentials=credentials)
         
         return logging.Client()

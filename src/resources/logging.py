@@ -1,6 +1,6 @@
 from typing import Dict, Any
 from .base import ResourceManager
-from ..models import LoggingResource, CloudEnvironment
+from ..models import LoggingResource, Account
 from ..logging_utils import _update_trail_selectors, _update_gcp_sink_filter
 
 class AwsCloudTrailHandler(ResourceManager):
@@ -20,12 +20,12 @@ class AwsCloudTrailHandler(ResourceManager):
                  
         return vars_dict
 
-    def enable_logging(self, resource_val: str, log_resource: LoggingResource, env_obj: CloudEnvironment) -> None:
+    def enable_logging(self, resource_val: str, log_resource: LoggingResource, account: Account) -> None:
         # Logging Resources generally don't log themselves into other logging resources
         # But if we were to support "logging-logging", this is where it would go.
         pass
 
-    def disable_logging(self, resource_val: str, log_resource: LoggingResource, env_obj: CloudEnvironment) -> None:
+    def disable_logging(self, resource_val: str, log_resource: LoggingResource, account: Account) -> None:
         pass
 
 
@@ -44,8 +44,9 @@ class GcpAuditSinkHandler(ResourceManager):
              
         return vars_dict
 
-    def enable_logging(self, resource_val: str, log_resource: LoggingResource, env_obj: CloudEnvironment) -> None:
+    def enable_logging(self, resource_val: str, log_resource: LoggingResource, account: Account) -> None:
         pass
 
-    def disable_logging(self, resource_val: str, log_resource: LoggingResource, env_obj: CloudEnvironment) -> None:
+    def disable_logging(self, resource_val: str, log_resource: LoggingResource, account: Account) -> None:
         pass
+

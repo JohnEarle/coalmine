@@ -3,16 +3,66 @@ Alerts API Routes
 
 Provides endpoints for viewing and managing security alerts.
 """
-from fastapi import APIRouter, Depends, Query
-from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
+from typing import Optional, List
+from datetime import datetime
 
 from ..auth import require_scope
-from ..schemas.alert import AlertResponse, AlertListResponse
-from ...cli.utils import get_db_session, resolve_canary, resolve_environment
-from ...models import Alert, CanaryResource
+from src.services import AlertService
 
 router = APIRouter(prefix="/alerts")
 
+
+# =============================================================================
+# Schemas
+# =============================================================================
+
+class AlertResponse(BaseModel):
+    """Response schema for alert data."""
+    id: str
+    canary_id: str
+    canary_name: Optional[str] = None
+    account_name: Optional[str] = None
+    external_id: Optional[str] = None
+    event_name: Optional[str] = None
+    source_ip: Optional[str] = None
+    user_agent: Optional[str] = None
+    timestamp: Optional[datetime] = None
+    status: str
+    created_at: Optional[datetime] = None
+
+    @classmethod
+    def from_model(cls, alert):
+        """Create response from Alert model."""
+        account_name = None
+        if alert.canary and alert.canary.account:
+            account_name = alert.canary.account.name
+        
+        return cls(
+            id=str(alert.id),
+            canary_id=str(alert.canary_id),
+            canary_name=alert.canary.name if alert.canary else None,
+            account_name=account_name,
+            external_id=alert.external_id,
+            event_name=alert.event_name,
+            source_ip=alert.source_ip,
+            user_agent=alert.user_agent,
+            timestamp=alert.timestamp,
+            status=alert.status.value if alert.status else "UNKNOWN",
+            created_at=alert.created_at
+        )
+
+
+class AlertListResponse(BaseModel):
+    """Response schema for list of alerts."""
+    alerts: List[AlertResponse]
+    total: int
+
+
+# =============================================================================
+# Endpoints
+# =============================================================================
 
 @router.get(
     "/",
@@ -22,57 +72,21 @@ router = APIRouter(prefix="/alerts")
 )
 async def list_alerts(
     canary: Optional[str] = Query(None, description="Filter by canary name or ID"),
-    env: Optional[str] = Query(None, description="Filter by environment name or ID"),
+    account: Optional[str] = Query(None, description="Filter by account name or ID"),
     status: Optional[str] = Query(None, description="Filter by alert status")
 ):
     """
     Retrieve a list of security alerts.
     
-    Optionally filter by canary, environment, or status.
+    Optionally filter by canary, account, or status.
     """
-    db = get_db_session()
-    try:
-        query = db.query(Alert).join(CanaryResource)
-        
-        # Apply filters
-        if canary:
-            canary_obj = resolve_canary(db, canary)
-            if canary_obj:
-                query = query.filter(Alert.canary_id == canary_obj.id)
-            else:
-                # Return empty if canary not found
-                return AlertListResponse(alerts=[], total=0)
-        
-        if env:
-            env_obj = resolve_environment(db, env)
-            if env_obj:
-                query = query.filter(CanaryResource.environment_id == env_obj.id)
-            else:
-                return AlertListResponse(alerts=[], total=0)
-        
-        if status:
-            query = query.filter(Alert.status == status)
-        
-        alerts = query.order_by(Alert.created_at.desc()).all()
+    with AlertService() as svc:
+        result = svc.list(canary=canary, account=account, status=status)
         
         return AlertListResponse(
-            alerts=[
-                AlertResponse(
-                    id=str(a.id),
-                    canary_id=str(a.canary_id),
-                    canary_name=a.canary.name if a.canary else None,
-                    external_id=a.external_id,
-                    event_type=a.event_type,
-                    source_ip=a.source_ip,
-                    status=a.status.value,
-                    created_at=a.created_at
-                )
-                for a in alerts
-            ],
-            total=len(alerts)
+            alerts=[AlertResponse.from_model(a) for a in result.items],
+            total=result.total
         )
-    finally:
-        db.close()
 
 
 @router.get(
@@ -83,33 +97,10 @@ async def list_alerts(
 )
 async def get_alert(alert_id: str):
     """Retrieve details for a specific alert."""
-    db = get_db_session()
-    try:
-        import uuid
-        from fastapi import HTTPException
+    with AlertService() as svc:
+        result = svc.get(alert_id)
         
-        try:
-            alert = db.query(Alert).filter(
-                Alert.id == uuid.UUID(alert_id)
-            ).first()
-        except ValueError:
-            # Try by external_id
-            alert = db.query(Alert).filter(
-                Alert.external_id == alert_id
-            ).first()
+        if not result.success:
+            raise HTTPException(status_code=404, detail=result.error)
         
-        if not alert:
-            raise HTTPException(status_code=404, detail=f"Alert '{alert_id}' not found")
-        
-        return AlertResponse(
-            id=str(alert.id),
-            canary_id=str(alert.canary_id),
-            canary_name=alert.canary.name if alert.canary else None,
-            external_id=alert.external_id,
-            event_type=alert.event_type,
-            source_ip=alert.source_ip,
-            status=alert.status.value,
-            created_at=alert.created_at
-        )
-    finally:
-        db.close()
+        return AlertResponse.from_model(result.data)

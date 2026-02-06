@@ -4,13 +4,13 @@ Canary lifecycle management tasks - create, rotate, and auto-rotation checks.
 from ..celery_app import celery_app
 from ..models import (
     SessionLocal, CanaryResource, ResourceHistory, ResourceType, 
-    ResourceStatus, ActionType, CloudEnvironment, LoggingResource, LoggingProviderType
+    ResourceStatus, ActionType, LoggingResource, LoggingProviderType, Account
 )
 from ..tofu_manager import TofuManager
 from ..logging_config import get_logger
 from .helpers import (
     TOFU_BASE_DIR, STATE_BASE_DIR,
-    _get_template_name, _get_execution_env, _get_backend_config
+    _get_template_name, _get_execution_env_from_account, _get_backend_config
 )
 from .lifecycle import ResourceLifecycleManager
 from ..resources.registry import ResourceRegistry
@@ -28,7 +28,7 @@ logger = get_logger(__name__)
     max_retries=3
 )
 def create_canary(name: str, resource_type_str: str, interval_seconds: int = 86400, 
-                  environment_id_str: str = None, module_params: dict = None, 
+                  account_id_str: str = None, module_params: dict = None, 
                   logging_resource_id_str: str = None):
     """
     Create a new canary resource with ACID-compliant transaction handling.
@@ -40,15 +40,18 @@ def create_canary(name: str, resource_type_str: str, interval_seconds: int = 864
     """
     with ResourceLifecycleManager(action_type=ActionType.CREATE) as ctx:
         resource_type = ResourceType(resource_type_str)
-        env_obj = None
-        if environment_id_str:
-            env_obj = ctx.db.query(CloudEnvironment).filter(CloudEnvironment.id == uuid.UUID(environment_id_str)).first()
-            if not env_obj:
-                raise ValueError(f"Environment {environment_id_str} not found")
-            if "AWS" in resource_type.value and env_obj.provider_type != "AWS":
-                raise ValueError("Env provider mismatch")
-            if "GCP" in resource_type.value and env_obj.provider_type != "GCP":
-                raise ValueError("Env provider mismatch")
+        account_obj = None
+        if account_id_str:
+            account_obj = ctx.db.query(Account).filter(Account.id == uuid.UUID(account_id_str)).first()
+            if not account_obj:
+                raise ValueError(f"Account {account_id_str} not found")
+            cred = account_obj.credential
+            if not cred:
+                raise ValueError(f"Account {account_id_str} has no credential")
+            if "AWS" in resource_type.value and cred.provider != "AWS":
+                raise ValueError("Account provider mismatch")
+            if "GCP" in resource_type.value and cred.provider != "GCP":
+                raise ValueError("Account provider mismatch")
         
         # Logging Resource Lookup
         log_res = None
@@ -75,7 +78,7 @@ def create_canary(name: str, resource_type_str: str, interval_seconds: int = 864
         canary = CanaryResource(
             name=name,
             resource_type=resource_type,
-            environment_id=env_obj.id if env_obj else None,
+            account_id=account_obj.id if account_obj else None,
             logging_resource_id=log_res.id if log_res else None,
             current_resource_id=physical_name,
             module_params=module_params,
@@ -90,40 +93,37 @@ def create_canary(name: str, resource_type_str: str, interval_seconds: int = 864
 
         # Setup Tofu
         template_name = _get_template_name(resource_type)
-        exec_env = _get_execution_env(env_obj)
+        exec_env = _get_execution_env_from_account(account_obj)
         
         # Debug: Log credential presence (not values!)
-        if env_obj:
-            logger.info(f"Environment '{env_obj.name}' (provider: {env_obj.provider_type}) loaded")
-            cred_keys = list((env_obj.credentials or {}).keys())
-            logger.info(f"Credential keys available: {cred_keys}")
+        if account_obj:
+            cred = account_obj.credential
+            logger.info(f"Account '{account_obj.name}' (provider: {cred.provider if cred else 'N/A'}) loaded")
             env_keys_set = [k for k in exec_env.keys() if k.startswith("AWS_") or k.startswith("GOOGLE_")]
             logger.info(f"Env vars set for Tofu: {env_keys_set}")
         else:
-            logger.warning("No environment object provided - using ambient credentials")
+            logger.warning("No account object provided - using ambient credentials")
         
         ctx.init_tofu(template_name, exec_env)
         
         # Build variables
         handler = ResourceRegistry.get_handler(resource_type)
         
-        # Prepare merged config for handler (variable resolution)
-        env_conf = env_obj.config.copy() if (env_obj and env_obj.config) else {}
-        if env_obj and env_obj.credentials and "project_id" in env_obj.credentials and "project_id" not in env_conf:
-             env_conf["project_id"] = env_obj.credentials["project_id"]
+        # Prepare Account Config (Project ID, etc)
+        env_conf = {}
+        if account_obj:
+            cred = account_obj.credential
+            if cred and cred.secrets and "project_id" in cred.secrets:
+                env_conf["project_id"] = cred.secrets["project_id"]
+            # Use account_id as project_id for GCP if not set
+            if "project_id" not in env_conf and account_obj.account_id:
+                env_conf["project_id"] = account_obj.account_id
 
         # Ensure project_id is passed if available in environment
         if "project_id" not in env_conf and "GOOGLE_CLOUD_PROJECT" in exec_env:
              env_conf["project_id"] = exec_env["GOOGLE_CLOUD_PROJECT"]
 
         vars_dict = handler.get_tform_vars(physical_name, env_conf, module_params)
-        
-        # Only merge allowed global vars from env config (region, tags)
-        if env_obj and env_obj.config:
-            allowed_global_vars = ['region', 'tags']
-            for key in allowed_global_vars:
-                if key in env_obj.config and key not in vars_dict:
-                    vars_dict[key] = env_obj.config[key]
 
         # 1. Apply - Create cloud resource
         output = ctx.apply(vars_dict)
@@ -143,7 +143,7 @@ def create_canary(name: str, resource_type_str: str, interval_seconds: int = 864
 
         # 4. Register with logging infrastructure
         if log_res:
-            handler.enable_logging(physical_name, log_res, env_obj)
+            handler.enable_logging(physical_name, log_res, account_obj)
 
         # 5. Record history
         history = ResourceHistory(
@@ -214,29 +214,28 @@ def rotate_canary(resource_id_str: str, new_name: str = None):
             canary.tf_state_path
         )
         
-        env_obj = canary.environment
-        exec_env = _get_execution_env(env_obj)
+        account = canary.account
+        exec_env = _get_execution_env_from_account(account)
         
         backend_config = _get_backend_config(str(canary.id))
         manager.init(env=exec_env, backend_config=backend_config)
 
         handler = ResourceRegistry.get_handler(canary.resource_type)
-        env_conf = env_obj.config.copy() if (env_obj and env_obj.config) else {}
-        if env_obj and env_obj.credentials and "project_id" in env_obj.credentials and "project_id" not in env_conf:
-             env_conf["project_id"] = env_obj.credentials["project_id"]
+        
+        # Prepare Account Config (Project ID, etc)
+        env_conf = {}
+        if account:
+            cred = account.credential
+            if cred and cred.secrets and "project_id" in cred.secrets:
+                env_conf["project_id"] = cred.secrets["project_id"]
+            if "project_id" not in env_conf and account.account_id:
+                env_conf["project_id"] = account.account_id
         
         # Ensure project_id is passed if available in environment
         if "project_id" not in env_conf and "GOOGLE_CLOUD_PROJECT" in exec_env:
              env_conf["project_id"] = exec_env["GOOGLE_CLOUD_PROJECT"]
 
         vars_dict = handler.get_tform_vars(new_physical_name, env_conf, canary.module_params)
-        
-        # Only merge allowed global vars from env config (region, tags)
-        if env_obj and env_obj.config:
-            allowed_global_vars = ['region', 'tags']
-            for key in allowed_global_vars:
-                if key in env_obj.config and key not in vars_dict:
-                    vars_dict[key] = env_obj.config[key]
         
         output = manager.apply(vars_dict, env=exec_env)
         
@@ -263,8 +262,8 @@ def rotate_canary(resource_id_str: str, new_name: str = None):
         # Dynamic Trail Registration (Rotation)
         if canary.logging_resource:
             log_res = canary.logging_resource
-            handler.disable_logging(old_resource_id, log_res, env_obj)
-            handler.enable_logging(new_physical_name, log_res, env_obj)
+            handler.disable_logging(old_resource_id, log_res, account)
+            handler.enable_logging(new_physical_name, log_res, account)
 
         # SUCCESS - Transition back to ACTIVE
         canary.status = ResourceStatus.ACTIVE
@@ -354,13 +353,14 @@ def delete_canary(resource_id_str: str):
         # Setup Tofu
         template_name = _get_template_name(canary.resource_type)
         template_path = os.path.join(TOFU_BASE_DIR, template_name)
-        env_obj = canary.environment
+        account = canary.account
         work_dir = canary.tf_state_path
+        
+        exec_env = _get_execution_env_from_account(account)
         
         manager = None
         if work_dir and os.path.exists(work_dir):
             manager = TofuManager(template_path, work_dir)
-            exec_env = _get_execution_env(env_obj)
             
             backend_config = _get_backend_config(str(canary.id))
             manager.init(env=exec_env, backend_config=backend_config)
@@ -369,29 +369,28 @@ def delete_canary(resource_id_str: str):
         
         # Build variables using Handler
         handler = ResourceRegistry.get_handler(canary.resource_type)
-        env_conf = env_obj.config.copy() if (env_obj and env_obj.config) else {}
-        if env_obj and env_obj.credentials and "project_id" in env_obj.credentials and "project_id" not in env_conf:
-             env_conf["project_id"] = env_obj.credentials["project_id"]
+        
+        # Prepare Account Config (Project ID, etc)
+        env_conf = {}
+        if account:
+            cred = account.credential
+            if cred and cred.secrets and "project_id" in cred.secrets:
+                env_conf["project_id"] = cred.secrets["project_id"]
+            if "project_id" not in env_conf and account.account_id:
+                env_conf["project_id"] = account.account_id
 
         # Ensure project_id is passed if available in environment
         if "project_id" not in env_conf and "GOOGLE_CLOUD_PROJECT" in exec_env:
              env_conf["project_id"] = exec_env["GOOGLE_CLOUD_PROJECT"]
 
         vars_dict = handler.get_tform_vars(canary.current_resource_id, env_conf, canary.module_params)
-        
-        # Only merge allowed global vars from env config (region, tags)
-        if env_obj and env_obj.config:
-            allowed_global_vars = ['region', 'tags']
-            for key in allowed_global_vars:
-                if key in env_obj.config and key not in vars_dict:
-                    vars_dict[key] = env_obj.config[key]
 
         # 1. Unregister from logging if necessary
         from .logging import _update_trail_selectors, _update_gcp_sink_filter
         from ..models import LoggingProviderType
         
         if canary.logging_resource:
-            handler.disable_logging(canary.current_resource_id, canary.logging_resource, env_obj)
+            handler.disable_logging(canary.current_resource_id, canary.logging_resource, account)
 
         # 2. Run Tofu Destroy
         if manager:

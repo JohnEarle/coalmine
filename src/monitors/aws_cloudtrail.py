@@ -11,14 +11,17 @@ logger = get_logger(__name__)
 
 class AwsCloudTrailMonitor(AccessMonitor):
     def _get_client(self, service="cloudtrail"):
-        creds = self.environment.credentials or {}
-        config = self.environment.config or {}
+        account = self.account
+        if not account or not account.credential:
+            return boto3.client(service)
+        
+        secrets = account.credential.secrets or {}
         
         # Support both uppercase and lowercase credential keys
-        access_key = creds.get("AWS_ACCESS_KEY_ID") or creds.get("aws_access_key_id")
-        secret_key = creds.get("AWS_SECRET_ACCESS_KEY") or creds.get("aws_secret_access_key")
-        session_token = creds.get("AWS_SESSION_TOKEN") or creds.get("aws_session_token")
-        region = config.get("region") or creds.get("region") or creds.get("aws_region") or "us-east-1"
+        access_key = secrets.get("AWS_ACCESS_KEY_ID") or secrets.get("aws_access_key_id")
+        secret_key = secrets.get("AWS_SECRET_ACCESS_KEY") or secrets.get("aws_secret_access_key")
+        session_token = secrets.get("AWS_SESSION_TOKEN") or secrets.get("aws_session_token")
+        region = secrets.get("AWS_REGION") or secrets.get("region") or secrets.get("aws_region") or "us-east-1"
         
         client_kwargs = {
             "aws_access_key_id": access_key,

@@ -25,11 +25,11 @@ def monitor_active_canaries():
         
         for canary in active_canaries:
             try:
-                env = canary.environment
-                if not env: 
+                account = canary.account
+                if not account: 
                     continue
                 
-                monitor = monitor_factory.get_monitor(env)
+                monitor = monitor_factory.get_monitor(account)
                 
                 end_time = datetime.datetime.utcnow()
                 

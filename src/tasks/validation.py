@@ -3,33 +3,35 @@ Resource health check task - uses unified HealthCheckFactory.
 """
 from ..celery_app import celery_app
 from ..models import (
-    SessionLocal, CanaryResource, LoggingResource, CloudEnvironment,
+    SessionLocal, CanaryResource, LoggingResource, Account, Credential,
     ResourceHistory, ResourceStatus, ActionType
 )
 from ..logging_config import get_logger
 from ..health.factory import HealthCheckFactory
-from ..health.environment import EnvironmentHealthCheck
+from ..health.credential import CredentialHealthCheck
 from ..health.logging import LoggingHealthCheck
 from ..health.canary import CanaryHealthCheck
 
 logger = get_logger(__name__)
 
 # Register Validators
-HealthCheckFactory.register(CloudEnvironment, EnvironmentHealthCheck)
+HealthCheckFactory.register(Credential, CredentialHealthCheck)
 HealthCheckFactory.register(LoggingResource, LoggingHealthCheck)
 HealthCheckFactory.register(CanaryResource, CanaryHealthCheck)
 
 @celery_app.task
 def run_health_checks():
     """
-    Periodically checks status of all resources (Environments, Logging, Canaries).
+    Periodically checks status of all resources (Credentials, Logging, Canaries).
     """
     db = SessionLocal()
     try:
-        # 1. Check Cloud Environments
-        envs = db.query(CloudEnvironment).all()
-        for env in envs:
-            _check_and_update(db, env, "Environment")
+        # 1. Check Credentials
+        creds = db.query(Credential).filter(
+            Credential.status != ResourceStatus.DELETED
+        ).all()
+        for cred in creds:
+            _check_and_update(db, cred, "Credential")
 
         # 2. Check Logging Resources
         logs = db.query(LoggingResource).filter(
@@ -77,3 +79,4 @@ def _check_and_update(db, resource, label):
                 
     except Exception as e:
         logger.error(f"Error checking {label} {resource.name}: {e}")
+

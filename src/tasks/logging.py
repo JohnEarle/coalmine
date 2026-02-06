@@ -4,7 +4,7 @@ Logging resource management tasks - CloudTrail and GCP Audit Sink.
 from ..celery_app import celery_app
 from ..models import (
     SessionLocal, LoggingResource, LoggingProviderType, 
-    ResourceStatus, CloudEnvironment, ResourceType, ActionType
+    ResourceStatus, Account, ResourceType, ActionType
 )
 from ..tofu_manager import TofuManager
 from ..logging_config import get_logger
@@ -23,10 +23,8 @@ logger = get_logger(__name__)
 
 
 
-
-
 @celery_app.task
-def create_logging_resource(name: str, provider_type_str: str, environment_id_str: str, config: dict = None):
+def create_logging_resource(name: str, provider_type_str: str, account_id_str: str, config: dict = None):
     """
     Create a logging resource (CloudTrail or GCP Audit Sink).
     
@@ -37,15 +35,15 @@ def create_logging_resource(name: str, provider_type_str: str, environment_id_st
     import uuid
     with ResourceLifecycleManager(action_type=ActionType.CREATE) as ctx:
         provider_type = LoggingProviderType(provider_type_str)
-        env_obj = ctx.db.query(CloudEnvironment).filter(CloudEnvironment.id == uuid.UUID(environment_id_str)).first()
-        if not env_obj:
-            raise ValueError(f"Environment {environment_id_str} not found")
+        account_obj = ctx.db.query(Account).filter(Account.id == uuid.UUID(account_id_str)).first()
+        if not account_obj:
+            raise ValueError(f"Account {account_id_str} not found")
 
         # Create Record in CREATING state
         log_res = LoggingResource(
             name=name,
             provider_type=provider_type,
-            environment_id=env_obj.id,
+            account_id=account_obj.id,
             configuration=config or {},
             status=ResourceStatus.CREATING
         )
@@ -59,14 +57,20 @@ def create_logging_resource(name: str, provider_type_str: str, environment_id_st
         handler = ResourceRegistry.get_handler(provider_type)
         
         template_name = _get_template_name(provider_type)
-        exec_env = _get_execution_env(env_obj)
+        exec_env = _get_execution_env(account_obj)
         
         ctx.init_tofu(template_name, exec_env)
         
-        # Prepare Environment Config (Project ID, etc)
-        env_conf = env_obj.config.copy() if (env_obj and env_obj.config) else {}
-        if env_obj and env_obj.credentials and "project_id" in env_obj.credentials and "project_id" not in env_conf:
-                env_conf["project_id"] = env_obj.credentials["project_id"]
+        # Prepare Account Config (Project ID, etc)
+        cred = account_obj.credential
+        env_conf = {}
+        if cred and cred.secrets:
+            if "project_id" in cred.secrets:
+                env_conf["project_id"] = cred.secrets["project_id"]
+
+        # Use account_id as project_id for GCP if not set
+        if "project_id" not in env_conf and account_obj.account_id:
+            env_conf["project_id"] = account_obj.account_id
 
         # Ensure project_id is passed if available in environment (Env Var fallback)
         if "project_id" not in env_conf and "GOOGLE_CLOUD_PROJECT" in exec_env:
@@ -102,3 +106,4 @@ def create_logging_resource(name: str, provider_type_str: str, environment_id_st
         logger.info(f"Logging Resource {name} created and verified.")
         
         # ctx exit will commit
+

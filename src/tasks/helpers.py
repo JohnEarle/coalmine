@@ -1,7 +1,7 @@
 """
 Shared helper functions and constants for Coalmine tasks.
 """
-from ..models import SessionLocal, CloudEnvironment, ResourceType
+from ..models import SessionLocal, ResourceType
 from ..tofu_manager import TofuManager
 from ..logging_config import get_logger
 import os
@@ -39,107 +39,28 @@ def _write_gcp_creds(creds_dict) -> str:
     return path
 
 
-def _build_env_vars(environment: CloudEnvironment) -> dict:
+def _get_execution_env_from_account(account) -> dict:
     """
-    Construct environment variables for Tofu based on CloudEnvironment credentials.
+    Construct environment variables for Tofu execution from Account model.
     
-    Clears conflicting cloud credentials to ensure isolation between environments.
-    Each canary uses ONLY the credentials from its associated CloudEnvironment.
+    Uses Account → Credential relationship to get secrets.
     """
-    env = os.environ.copy()
+    if not account:
+        return {}
     
-    # Clear all cloud provider credentials to prevent cross-contamination
-    # This ensures we only use credentials explicitly set from the environment
-    aws_keys = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
-                "AWS_REGION", "AWS_DEFAULT_REGION", "AWS_PROFILE"]
-    gcp_keys = ["GOOGLE_APPLICATION_CREDENTIALS", "GOOGLE_CREDENTIALS", 
-                "GCLOUD_PROJECT", "GOOGLE_CLOUD_PROJECT", "CLOUDSDK_CORE_PROJECT"]
-    
-    for key in aws_keys + gcp_keys:
-        env.pop(key, None)
-    
-    if not environment:
-        logger.warning("No environment provided - Tofu will have no cloud credentials")
-        return env
-    
-    creds = environment.credentials or {}
-    
-    if environment.provider_type == "AWS":
-        # Support both uppercase and lowercase credential keys
-        access_key = creds.get("AWS_ACCESS_KEY_ID") or creds.get("aws_access_key_id")
-        secret_key = creds.get("AWS_SECRET_ACCESS_KEY") or creds.get("aws_secret_access_key")
-        session_token = creds.get("AWS_SESSION_TOKEN") or creds.get("aws_session_token")
-        region = creds.get("AWS_REGION") or creds.get("region") or creds.get("aws_region")
-        
-        if access_key:
-            env["AWS_ACCESS_KEY_ID"] = access_key
-        if secret_key:
-            env["AWS_SECRET_ACCESS_KEY"] = secret_key
-        if session_token:
-            env["AWS_SESSION_TOKEN"] = session_token
-        if region:
-            env["AWS_REGION"] = region
-            env["AWS_DEFAULT_REGION"] = region
-            
-    elif environment.provider_type == "GCP":
-        # Support inline JSON credentials or a path
-        # Check for various key names
-        json_content = (creds.get("service_account_json") or 
-                       creds.get("GOOGLE_CREDENTIALS_JSON") or 
-                       creds.get("google_credentials_json"))
-        
-        path_val = (creds.get("GOOGLE_APPLICATION_CREDENTIALS") or 
-                   creds.get("google_application_credentials"))
-
-        if json_content:
-            path = _write_gcp_creds(json_content)
-            env["GOOGLE_APPLICATION_CREDENTIALS"] = path
-            
-            # ECONOMIES OF MECHANISM: Extract project_id from the JSON
-            # This avoids requiring the user to specify it twice (once in JSON, once in config)
-            try:
-                if isinstance(json_content, str):
-                    data = json.loads(json_content)
-                else:
-                    data = json_content
-                
-                extracted_project = data.get("project_id")
-                if extracted_project and "GOOGLE_CLOUD_PROJECT" not in env:
-                    env["GOOGLE_CLOUD_PROJECT"] = extracted_project
-                    env["CLOUDSDK_CORE_PROJECT"] = extracted_project
-            except Exception as e:
-                logger.warning(f"Failed to parse GCP credentials JSON for project_id: {e}")
-
-        elif path_val:
-            env["GOOGLE_APPLICATION_CREDENTIALS"] = path_val
-        
-        # Explicit override takes precedence (or acts as fallback if JSON parsing failed)
-        project = creds.get("project_id") or creds.get("GOOGLE_CLOUD_PROJECT")
-        if project:
-            env["GOOGLE_CLOUD_PROJECT"] = project
-            env["CLOUDSDK_CORE_PROJECT"] = project
-            
-    return env
-
-
-def _get_execution_env(environment: CloudEnvironment) -> dict:
-    """
-    Construct environment variables for Tofu execution.
-    Returns ONLY the variables defined in the CloudEnvironment, 
-    intended for use with TofuManager's clean_env=True mode.
-    """
-    if not environment:
+    cred = account.credential
+    if not cred:
         return {}
     
     env = {}
-    creds = environment.credentials or {}
+    secrets = cred.secrets or {}
     
-    if environment.provider_type == "AWS":
+    if cred.provider == "AWS":
         # Support both uppercase and lowercase credential keys
-        access_key = creds.get("AWS_ACCESS_KEY_ID") or creds.get("aws_access_key_id")
-        secret_key = creds.get("AWS_SECRET_ACCESS_KEY") or creds.get("aws_secret_access_key")
-        session_token = creds.get("AWS_SESSION_TOKEN") or creds.get("aws_session_token")
-        region = creds.get("AWS_REGION") or creds.get("region") or creds.get("aws_region")
+        access_key = secrets.get("AWS_ACCESS_KEY_ID") or secrets.get("aws_access_key_id")
+        secret_key = secrets.get("AWS_SECRET_ACCESS_KEY") or secrets.get("aws_secret_access_key")
+        session_token = secrets.get("AWS_SESSION_TOKEN") or secrets.get("aws_session_token")
+        region = secrets.get("AWS_REGION") or secrets.get("region") or secrets.get("aws_region")
         
         if access_key:
             env["AWS_ACCESS_KEY_ID"] = access_key
@@ -151,13 +72,13 @@ def _get_execution_env(environment: CloudEnvironment) -> dict:
             env["AWS_REGION"] = region
             env["AWS_DEFAULT_REGION"] = region
             
-    elif environment.provider_type == "GCP":
-        json_content = (creds.get("service_account_json") or 
-                       creds.get("GOOGLE_CREDENTIALS_JSON") or 
-                       creds.get("google_credentials_json"))
+    elif cred.provider == "GCP":
+        json_content = (secrets.get("service_account_json") or 
+                       secrets.get("GOOGLE_CREDENTIALS_JSON") or 
+                       secrets.get("google_credentials_json"))
         
-        path_val = (creds.get("GOOGLE_APPLICATION_CREDENTIALS") or 
-                   creds.get("google_application_credentials"))
+        path_val = (secrets.get("GOOGLE_APPLICATION_CREDENTIALS") or 
+                   secrets.get("google_application_credentials"))
 
         if json_content:
             path = _write_gcp_creds(json_content)
@@ -179,12 +100,24 @@ def _get_execution_env(environment: CloudEnvironment) -> dict:
         elif path_val:
             env["GOOGLE_APPLICATION_CREDENTIALS"] = path_val
         
-        project = creds.get("project_id") or creds.get("GOOGLE_CLOUD_PROJECT")
-        if project:
-            env["GOOGLE_CLOUD_PROJECT"] = project
-            env["CLOUDSDK_CORE_PROJECT"] = project
+        # Use account.account_id as project_id if not extracted from SA JSON
+        if "GOOGLE_CLOUD_PROJECT" not in env:
+            env["GOOGLE_CLOUD_PROJECT"] = account.account_id
+            env["CLOUDSDK_CORE_PROJECT"] = account.account_id
             
     return env
+
+
+# Backwards compatibility alias - delegates to account-based version
+def _get_execution_env(env_or_account) -> dict:
+    """
+    Construct environment variables for Tofu execution.
+    
+    Backwards-compatible function that works with Account objects.
+    Legacy CloudEnvironment objects are no longer supported.
+    """
+    return _get_execution_env_from_account(env_or_account)
+
 
 
 def _get_template_name(resource_type) -> str:

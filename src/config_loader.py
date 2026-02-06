@@ -126,6 +126,27 @@ def requires_logging(resource_type: str) -> bool:
     return False
 
 
+def get_resource_types_config() -> Dict[str, Any]:
+    """
+    Get raw resource types configuration dict from YAML.
+    
+    Used by the metadata API to expose type information to the WebUI.
+    Returns the raw dict rather than Pydantic models for flexibility.
+    """
+    raw_config = _load_yaml("resource_types.yaml")
+    return raw_config.get("resource_types", {})
+
+
+def get_logging_types_config() -> Dict[str, Any]:
+    """
+    Get raw logging types configuration dict from YAML.
+    
+    Used by the metadata API to expose logging provider information to the WebUI.
+    """
+    raw_config = _load_yaml("resource_types.yaml")
+    return raw_config.get("logging_types", {})
+
+
 def reload_configs():
     """Force reload of all configuration files."""
     global _resource_types_cache, _detections_cache, _alert_outputs_cache, _environments_cache

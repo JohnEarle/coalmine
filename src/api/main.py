@@ -5,10 +5,13 @@ Main application initialization with middleware, routers, and exception handlers
 """
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
+import os
 
-from .routes import canaries, environments, logging, alerts
+from .routes import canaries, logging, alerts, meta, credentials, accounts
+from .session_auth import router as session_router
 from ..models import init_db
 from ..logging_config import get_logger
 
@@ -58,7 +61,62 @@ async def health_check():
 
 
 # Register routers
+# Session auth for WebUI (separate from API key auth)
+app.include_router(session_router)
+
+# API routes
+app.include_router(meta.router, prefix="/api/v1", tags=["metadata"])
 app.include_router(canaries.router, prefix="/api/v1", tags=["canaries"])
-app.include_router(environments.router, prefix="/api/v1", tags=["environments"])
 app.include_router(logging.router, prefix="/api/v1", tags=["logging"])
 app.include_router(alerts.router, prefix="/api/v1", tags=["alerts"])
+app.include_router(credentials.router, prefix="/api/v1", tags=["credentials"])
+app.include_router(accounts.router, prefix="/api/v1", tags=["accounts"])
+
+
+# =============================================================================
+# WebUI Static File Serving
+# =============================================================================
+# The WebUI is completely segmented in the webui/ directory.
+# We only serve it if the build output exists, allowing the API to run
+# independently if the WebUI hasn't been built.
+
+# Check multiple possible locations for WebUI build
+_WEBUI_PATHS = [
+    os.path.join(os.path.dirname(__file__), "../../webui/dist"),  # Development
+    "/app/webui/dist",  # Docker container
+]
+
+WEBUI_DIST = None
+for path in _WEBUI_PATHS:
+    if os.path.exists(path) and os.path.isdir(path):
+        WEBUI_DIST = os.path.abspath(path)
+        break
+
+if WEBUI_DIST:
+    logger.info(f"WebUI enabled, serving from: {WEBUI_DIST}")
+    
+    # Serve static assets (JS, CSS, images)
+    assets_path = os.path.join(WEBUI_DIST, "assets")
+    if os.path.exists(assets_path):
+        app.mount("/ui/assets", StaticFiles(directory=assets_path), name="webui-assets")
+    
+    # SPA catch-all route - serves index.html for all /ui/* paths
+    # This enables client-side routing in the React app
+    @app.get("/ui/{full_path:path}")
+    async def serve_spa(full_path: str):
+        """Serve the WebUI SPA for all /ui routes."""
+        index_path = os.path.join(WEBUI_DIST, "index.html")
+        if os.path.exists(index_path):
+            return FileResponse(index_path)
+        return JSONResponse({"error": "WebUI not found"}, status_code=404)
+    
+    @app.get("/ui")
+    async def serve_spa_root():
+        """Serve WebUI at /ui root."""
+        index_path = os.path.join(WEBUI_DIST, "index.html")
+        if os.path.exists(index_path):
+            return FileResponse(index_path)
+        return JSONResponse({"error": "WebUI not found"}, status_code=404)
+else:
+    logger.info("WebUI not available (webui/dist not found)")
+
