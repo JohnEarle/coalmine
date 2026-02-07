@@ -84,7 +84,7 @@ def seed_logging_resource(engine, seed_account):
 class TestCreateLoggingResource:
     @patch("src.tasks.create_logging_resource")
     def test_create_success(self, mock_task, client, seed_account):
-        mock_task.delay = MagicMock()
+        mock_task.delay.return_value.id = "test-task-id"
         resp = client.post("/api/v1/logging-resources/", json={
             "name": "new-trail",
             "provider_type": "AWS_CLOUDTRAIL",

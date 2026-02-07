@@ -45,13 +45,13 @@ class TestCLIParsing:
         """Test 'canary create' parses with required args."""
         args = cli_parser.parse_args([
             'canary', 'create', 'my-canary', 'AWS_IAM_USER',
-            '--env', 'abc-123', '--logging-id', 'def-456'
+            '--account', 'abc-123', '--logging-id', 'def-456'
         ])
         assert args.resource == 'canary'
         assert args.action == 'create'
         assert args.name == 'my-canary'
         assert args.type == 'AWS_IAM_USER'
-        assert args.env == 'abc-123'
+        assert args.account == 'abc-123'
         assert args.logging_id == 'def-456'
 
     @pytest.mark.unit
@@ -59,7 +59,7 @@ class TestCLIParsing:
         """Test 'canary create' with optional interval and params."""
         args = cli_parser.parse_args([
             'canary', 'create', 'test', 'GCP_BUCKET',
-            '--env', 'e1', '--logging-id', 'l1',
+            '--account', 'e1', '--logging-id', 'l1',
             '--interval', '3600', '--params', '{"foo": "bar"}'
         ])
         assert args.interval == 3600
@@ -100,19 +100,19 @@ class TestCLIParsing:
         """Test 'logs create' parses with required args."""
         args = cli_parser.parse_args([
             'logs', 'create', 'my-trail', 'AWS_CLOUDTRAIL',
-            '--env', 'abc-123'
+            '--account', 'abc-123'
         ])
         assert args.action == 'create'
         assert args.name == 'my-trail'
         assert args.type == 'AWS_CLOUDTRAIL'
-        assert args.env == 'abc-123'
+        assert args.account == 'abc-123'
 
     @pytest.mark.unit
     def test_logs_scan_parses(self, cli_parser):
         """Test 'logs scan' parses correctly."""
-        args = cli_parser.parse_args(['logs', 'scan', '--env', 'abc-123'])
+        args = cli_parser.parse_args(['logs', 'scan', '--account', 'abc-123'])
         assert args.action == 'scan'
-        assert args.env == 'abc-123'
+        assert args.account == 'abc-123'
 
     # ========== Alerts Commands ==========
     
@@ -127,10 +127,10 @@ class TestCLIParsing:
     def test_alerts_list_with_filters(self, cli_parser):
         """Test 'alerts list' with filter options."""
         args = cli_parser.parse_args([
-            'alerts', 'list', '--canary', 'my-canary', '--env', 'prod'
+            'alerts', 'list', '--canary', 'my-canary', '--account', 'prod'
         ])
         assert args.canary == 'my-canary'
-        assert args.env == 'prod'
+        assert args.account == 'prod'
 
     # ========== Resource Group Structure ==========
     

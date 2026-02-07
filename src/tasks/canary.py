@@ -48,10 +48,6 @@ def create_canary(name: str, resource_type_str: str, interval_seconds: int = 864
             cred = account_obj.credential
             if not cred:
                 raise ValueError(f"Account {account_id_str} has no credential")
-            if "AWS" in resource_type.value and cred.provider != "AWS":
-                raise ValueError("Account provider mismatch")
-            if "GCP" in resource_type.value and cred.provider != "GCP":
-                raise ValueError("Account provider mismatch")
         
         # Logging Resource Lookup
         log_res = None
@@ -62,9 +58,9 @@ def create_canary(name: str, resource_type_str: str, interval_seconds: int = 864
             if log_res.status != ResourceStatus.ACTIVE:
                 raise ValueError(f"Logging Resource {log_res.name} is not HEALTHY (Status: {log_res.status}). Cannot use for new canary.")
 
-        # For AWS Buckets, enforce Logging Resource
-        if resource_type == ResourceType.AWS_BUCKET and not log_res:
-            raise ValueError("AWS_BUCKET requires a valid logging_resource_id.")
+        # Validation via Handler
+        handler = ResourceRegistry.get_handler(resource_type)
+        handler.validate(account_obj, module_params, log_res)
 
         if interval_seconds > 0:
             timestamp_suffix = datetime.datetime.utcnow().strftime("%Y%m%d%H%M")
@@ -97,29 +93,8 @@ def create_canary(name: str, resource_type_str: str, interval_seconds: int = 864
         
         ctx.init_tofu(template_name, exec_env)
         
-        # Build variables
-        handler = ResourceRegistry.get_handler(resource_type)
-        
-        # Prepare Account Config (Project ID, region, etc)
-        env_conf = {}
-        if account_obj:
-            cred = account_obj.credential
-            if cred and cred.secrets and "project_id" in cred.secrets:
-                env_conf["project_id"] = cred.secrets["project_id"]
-            # Use account_id as project_id for GCP if not set
-            if "project_id" not in env_conf and account_obj.account_id:
-                env_conf["project_id"] = account_obj.account_id
-            # Extract AWS region from credentials for region-dependent resources
-            if cred and cred.secrets:
-                region = (cred.secrets.get("region") or 
-                         cred.secrets.get("aws_region") or
-                         cred.secrets.get("AWS_REGION"))
-                if region:
-                    env_conf["aws_region"] = region
-
-        # Fallback: use project_id from exec environment
-        if "project_id" not in env_conf and "GOOGLE_CLOUD_PROJECT" in exec_env:
-             env_conf["project_id"] = exec_env["GOOGLE_CLOUD_PROJECT"]
+        # handler is already retrieved earlier for validation
+        env_conf = handler.resolve_env_config(account_obj, exec_env)
 
         vars_dict = handler.get_tform_vars(physical_name, env_conf, module_params)
 
@@ -219,19 +194,7 @@ def rotate_canary(resource_id_str: str, new_name: str = None):
         manager.init(env=exec_env, backend_config=backend_config)
 
         handler = ResourceRegistry.get_handler(canary.resource_type)
-        
-        # Prepare Account Config (Project ID, etc)
-        env_conf = {}
-        if account:
-            cred = account.credential
-            if cred and cred.secrets and "project_id" in cred.secrets:
-                env_conf["project_id"] = cred.secrets["project_id"]
-            if "project_id" not in env_conf and account.account_id:
-                env_conf["project_id"] = account.account_id
-        
-        # Ensure project_id is passed if available in environment
-        if "project_id" not in env_conf and "GOOGLE_CLOUD_PROJECT" in exec_env:
-             env_conf["project_id"] = exec_env["GOOGLE_CLOUD_PROJECT"]
+        env_conf = handler.resolve_env_config(account, exec_env)
 
         vars_dict = handler.get_tform_vars(new_physical_name, env_conf, canary.module_params)
         
@@ -367,19 +330,7 @@ def delete_canary(resource_id_str: str):
         
         # Build variables using Handler
         handler = ResourceRegistry.get_handler(canary.resource_type)
-        
-        # Prepare Account Config (Project ID, etc)
-        env_conf = {}
-        if account:
-            cred = account.credential
-            if cred and cred.secrets and "project_id" in cred.secrets:
-                env_conf["project_id"] = cred.secrets["project_id"]
-            if "project_id" not in env_conf and account.account_id:
-                env_conf["project_id"] = account.account_id
-
-        # Ensure project_id is passed if available in environment
-        if "project_id" not in env_conf and "GOOGLE_CLOUD_PROJECT" in exec_env:
-             env_conf["project_id"] = exec_env["GOOGLE_CLOUD_PROJECT"]
+        env_conf = handler.resolve_env_config(account, exec_env)
 
         vars_dict = handler.get_tform_vars(canary.current_resource_id, env_conf, canary.module_params)
 

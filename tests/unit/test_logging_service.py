@@ -52,7 +52,7 @@ def seed(db):
 class TestLoggingResourceCreate:
     @patch("src.tasks.create_logging_resource")
     def test_create_queues_task(self, mock_task, db, seed):
-        mock_task.delay = MagicMock()
+        mock_task.delay.return_value.id = "test-task-id"
         svc = LoggingResourceService(db=db)
         result = svc.create(
             name="new-trail",
