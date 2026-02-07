@@ -2,7 +2,8 @@ import base64
 import json
 from google.oauth2 import service_account
 from google.cloud import storage
-from .base import CanaryTrigger, logger
+from google.api_core.gapic_v1 import client_info as client_info_lib
+from .base import CanaryTrigger, logger, _get_test_ua_suffix
 from ..models import CanaryResource
 
 class GcpSaTrigger(CanaryTrigger):
@@ -29,7 +30,9 @@ class GcpSaTrigger(CanaryTrigger):
              project = info.get('project_id')
              
              logger.info(f"Triggering {canary.name} via storage.buckets.list()...")
-             client = storage.Client(credentials=credentials, project=project)
+             ua_suffix = _get_test_ua_suffix()
+             ci = client_info_lib.ClientInfo(user_agent=ua_suffix) if ua_suffix else None
+             client = storage.Client(credentials=credentials, project=project, client_info=ci)
              
              # This might fail with 403, but that IS the trigger event usually
              try:

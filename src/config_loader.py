@@ -2,7 +2,7 @@
 Configuration loader for YAML-based resource and detection configs.
 
 This module loads configuration from the config/ directory and provides
-type-safe access to resource types, detection strategies, and cloud environments.
+type-safe access to resource types and detection strategies.
 
 Environment variables can be used in YAML files with the following syntax:
   - ${VAR_NAME}           - Required, fails if not set
@@ -13,11 +13,10 @@ import os
 import re
 import yaml
 from pathlib import Path
-from typing import Dict, Any, Optional, Union
+from typing import Dict, Any, Optional
 from .config_schemas import (
     ResourceTypesFile, ResourceTypeConfig, 
-    DetectionsFile, DetectionConfig, 
-    EnvironmentsFile, CloudEnvironmentConfig
+    DetectionsFile, DetectionConfig,
 )
 
 # Config directory path
@@ -67,8 +66,6 @@ def get_resource_types() -> Dict[str, ResourceTypeConfig]:
     global _resource_types_cache
     if _resource_types_cache is None:
         raw_config = _load_yaml("resource_types.yaml")
-        # Validate with Pydantic
-        # Note: ResourceTypesFile expects "resource_types" key
         if "resource_types" not in raw_config:
             raw_config = {"resource_types": {}}
             
@@ -118,6 +115,33 @@ def get_detection_config(resource_type: str) -> Optional[DetectionConfig]:
     return get_detections().get(resource_type)
 
 
+_ua_tokens_cache: Optional[list] = None
+
+
+def get_ua_exclusion_tokens() -> list:
+    """
+    Get the list of secret UA tokens used to identify self-generated events.
+    
+    Reads exclusions.ua_tokens from detections.yaml, expands env vars,
+    and filters out empty/unset values.
+    """
+    global _ua_tokens_cache
+    if _ua_tokens_cache is None:
+        raw_config = _load_yaml("detections.yaml")
+        exclusions = raw_config.get("exclusions", {})
+        raw_tokens = exclusions.get("ua_tokens", [])
+        tokens = []
+        for token in raw_tokens:
+            try:
+                expanded = _expand_env_var(str(token))
+                if expanded:
+                    tokens.append(expanded)
+            except ValueError:
+                pass  # Skip unset env vars
+        _ua_tokens_cache = tokens
+    return _ua_tokens_cache
+
+
 def requires_logging(resource_type: str) -> bool:
     """Check if a resource type requires a logging resource."""
     config = get_resource_type_config(resource_type)
@@ -149,11 +173,11 @@ def get_logging_types_config() -> Dict[str, Any]:
 
 def reload_configs():
     """Force reload of all configuration files."""
-    global _resource_types_cache, _detections_cache, _alert_outputs_cache, _environments_cache
+    global _resource_types_cache, _detections_cache, _alert_outputs_cache, _ua_tokens_cache
     _resource_types_cache = None
     _detections_cache = None
     _alert_outputs_cache = None
-    _environments_cache = None
+    _ua_tokens_cache = None
 
 
 # =============================================================================
@@ -221,56 +245,4 @@ def _expand_env_vars_recursive(obj: Any) -> Any:
     return obj
 
 
-# =============================================================================
-# Cloud Environments Configuration
-# =============================================================================
 
-_environments_cache: Optional[Dict[str, CloudEnvironmentConfig]] = None
-
-
-def get_environments(expand_env_vars: bool = True) -> Dict[str, Union[Dict, CloudEnvironmentConfig]]:
-    """
-    Get cloud environment configurations from environments.yaml.
-    
-    Environment variables in the YAML are expanded by default.
-    
-    Args:
-        expand_env_vars: If True, expand ${...} expressions. Set to False
-                        to get raw config (useful for debugging).
-    
-    Returns:
-        Dict mapping environment names to their config object (or dict if validation disabled via internal flag, but currently always validated if expanding).
-    """
-    global _environments_cache
-    
-    # Don't cache when not expanding (for validation use cases)
-    if not expand_env_vars:
-        config = _load_yaml("environments.yaml")
-        return config.get("environments", {})
-    
-    if _environments_cache is None:
-        config = _load_yaml("environments.yaml")
-        raw_envs = config.get("environments", {})
-        
-        # Expand vars first
-        expanded_envs = _expand_env_vars_recursive(raw_envs)
-        
-        # Wrap in Pydantic model for validation
-        # EnvironmentsFile expects 'environments' dict
-        env_file = EnvironmentsFile(environments=expanded_envs)
-        _environments_cache = env_file.environments
-    
-    return _environments_cache
-
-
-def get_environment_config(env_name: str) -> Optional[CloudEnvironmentConfig]:
-    """
-    Get configuration for a specific environment.
-    
-    Args:
-        env_name: Name of the environment (e.g., "aws-production")
-        
-    Returns:
-        Environment config object or None if not found
-    """
-    return get_environments().get(env_name)

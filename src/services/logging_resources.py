@@ -6,7 +6,7 @@ Provides business logic for managing logging resources.
 from typing import Optional
 
 from .base import BaseService, ServiceResult, ListResult
-from src.models import LoggingResource, LoggingProviderType, Account
+from src.models import LoggingResource, LoggingProviderType, Account, TaskLog, TaskStatus
 
 
 class LoggingResourceService(BaseService):
@@ -54,13 +54,21 @@ class LoggingResourceService(BaseService):
             return ServiceResult.fail(f"Account '{account_id}' not found")
         
         try:
-            create_logging_task.delay(
+            async_result = create_logging_task.delay(
                 name=name,
                 provider_type_str=provider_type,
                 account_id_str=str(account.id),
                 config=config
             )
-            return ServiceResult.ok({"status": "queued", "name": name})
+            log = TaskLog(
+                celery_task_id=async_result.id,
+                task_name="create_logging_resource",
+                source="user",
+                status=TaskStatus.PENDING,
+            )
+            self.db.add(log)
+            self.db.commit()
+            return ServiceResult.ok({"status": "queued", "name": name, "task_id": async_result.id})
         except Exception as e:
             return ServiceResult.fail(f"Error queuing logging resource creation: {e}")
     

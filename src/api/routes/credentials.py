@@ -4,7 +4,7 @@ Credential Management API Routes
 Provides endpoints for managing cloud credentials.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional, List
 from datetime import datetime
 
@@ -37,8 +37,7 @@ class CredentialResponse(BaseModel):
     created_at: Optional[datetime] = None
     account_count: int = 0
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
     
     @classmethod
     def from_model(cls, cred):

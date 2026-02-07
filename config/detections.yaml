@@ -37,6 +37,15 @@ detections:
     strategy: GcpAuditLogQuery
     filter_template: 'protoPayload.serviceName="storage.googleapis.com" AND protoPayload.resourceName:"{resource_id}" AND timestamp >= "{start_time}" AND timestamp <= "{end_time}" AND protoPayload.methodName=("storage.objects.get" OR "storage.objects.list")'
 
+# Exclusion Configuration
+# Events whose user-agent contains any of these tokens are
+# treated as self-generated (IaC) and silently dropped.
+# NOTE: The test token (COALMINE_TEST_UA_TOKEN) is intentionally NOT listed
+# here — test triggers should still generate alerts.
+exclusions:
+  ua_tokens:
+    - ${COALMINE_IAC_UA_TOKEN}
+
 # Strategy Reference:
 #
 # CloudWatchLogsQuery:

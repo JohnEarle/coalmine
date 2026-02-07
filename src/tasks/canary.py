@@ -10,7 +10,7 @@ from ..tofu_manager import TofuManager
 from ..logging_config import get_logger
 from .helpers import (
     TOFU_BASE_DIR, STATE_BASE_DIR,
-    _get_template_name, _get_execution_env_from_account, _get_backend_config
+    _get_template_name, _get_execution_env, _get_backend_config
 )
 from .lifecycle import ResourceLifecycleManager
 from ..resources.registry import ResourceRegistry
@@ -93,16 +93,7 @@ def create_canary(name: str, resource_type_str: str, interval_seconds: int = 864
 
         # Setup Tofu
         template_name = _get_template_name(resource_type)
-        exec_env = _get_execution_env_from_account(account_obj)
-        
-        # Debug: Log credential presence (not values!)
-        if account_obj:
-            cred = account_obj.credential
-            logger.info(f"Account '{account_obj.name}' (provider: {cred.provider if cred else 'N/A'}) loaded")
-            env_keys_set = [k for k in exec_env.keys() if k.startswith("AWS_") or k.startswith("GOOGLE_")]
-            logger.info(f"Env vars set for Tofu: {env_keys_set}")
-        else:
-            logger.warning("No account object provided - using ambient credentials")
+        exec_env = _get_execution_env(account_obj)
         
         ctx.init_tofu(template_name, exec_env)
         
@@ -126,7 +117,7 @@ def create_canary(name: str, resource_type_str: str, interval_seconds: int = 864
                 if region:
                     env_conf["aws_region"] = region
 
-        # Ensure project_id is passed if available in environment
+        # Fallback: use project_id from exec environment
         if "project_id" not in env_conf and "GOOGLE_CLOUD_PROJECT" in exec_env:
              env_conf["project_id"] = exec_env["GOOGLE_CLOUD_PROJECT"]
 
@@ -222,7 +213,7 @@ def rotate_canary(resource_id_str: str, new_name: str = None):
         )
         
         account = canary.account
-        exec_env = _get_execution_env_from_account(account)
+        exec_env = _get_execution_env(account)
         
         backend_config = _get_backend_config(str(canary.id))
         manager.init(env=exec_env, backend_config=backend_config)
@@ -363,7 +354,7 @@ def delete_canary(resource_id_str: str):
         account = canary.account
         work_dir = canary.tf_state_path
         
-        exec_env = _get_execution_env_from_account(account)
+        exec_env = _get_execution_env(account)
         
         manager = None
         if work_dir and os.path.exists(work_dir):

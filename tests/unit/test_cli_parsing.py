@@ -16,17 +16,15 @@ class TestCLIParsing:
             'src.models': MagicMock(),
             'src.tasks': MagicMock(),
             'src.triggers': MagicMock(),
-            'src.environment_sync': MagicMock(),
             'boto3': MagicMock(),
         }):
             from src.cli import run
-            from src.cli.commands import canary, environment, logging_cmd, alerts
+            from src.cli.commands import canary, logging_cmd, alerts
             
             parser = argparse.ArgumentParser(description="Test CLI")
             subparsers = parser.add_subparsers(dest="resource")
             
             canary.register_commands(subparsers)
-            environment.register_commands(subparsers)
             logging_cmd.register_commands(subparsers)
             alerts.register_commands(subparsers)
             
@@ -88,43 +86,6 @@ class TestCLIParsing:
         assert args.action == 'trigger'
         assert args.name_or_id == 'my-canary'
 
-    # ========== Environment Commands ==========
-    
-    @pytest.mark.unit
-    def test_env_list_parses(self, cli_parser):
-        """Test 'env list' parses correctly."""
-        args = cli_parser.parse_args(['env', 'list'])
-        assert args.resource == 'env'
-        assert args.action == 'list'
-
-    @pytest.mark.unit
-    def test_env_create_parses(self, cli_parser):
-        """Test 'env create' parses with required args."""
-        args = cli_parser.parse_args([
-            'env', 'create', 'prod', 'AWS',
-            '--credentials', '{"key": "value"}'
-        ])
-        assert args.action == 'create'
-        assert args.name == 'prod'
-        assert args.provider == 'AWS'
-        assert args.credentials == '{"key": "value"}'
-
-    @pytest.mark.unit
-    def test_env_sync_parses(self, cli_parser):
-        """Test 'env sync' parses correctly."""
-        args = cli_parser.parse_args(['env', 'sync'])
-        assert args.action == 'sync'
-        assert args.dry_run is False
-        assert args.force is False
-        assert args.validate is False
-
-    @pytest.mark.unit
-    def test_env_sync_with_flags(self, cli_parser):
-        """Test 'env sync' with optional flags."""
-        args = cli_parser.parse_args(['env', 'sync', '--dry-run', '--validate'])
-        assert args.dry_run is True
-        assert args.validate is True
-
     # ========== Logs Commands ==========
     
     @pytest.mark.unit
@@ -179,9 +140,6 @@ class TestCLIParsing:
         # Parse with just the resource to check it exists
         args = cli_parser.parse_args(['canary'])
         assert args.resource == 'canary'
-        
-        args = cli_parser.parse_args(['env'])
-        assert args.resource == 'env'
         
         args = cli_parser.parse_args(['logs'])
         assert args.resource == 'logs'

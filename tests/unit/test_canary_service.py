@@ -58,7 +58,9 @@ def seed(db):
 class TestCanaryCreate:
     @patch("src.tasks.create_canary")
     def test_create_queues_task(self, mock_task, db, seed):
-        mock_task.delay = MagicMock()
+        mock_result = MagicMock()
+        mock_result.id = "fake-task-id-create"
+        mock_task.delay = MagicMock(return_value=mock_result)
         svc = CanaryService(db=db)
         result = svc.create(
             name="new-canary",
@@ -68,6 +70,7 @@ class TestCanaryCreate:
         )
         assert result.success
         assert result.data["status"] == "queued"
+        assert result.data["task_id"] == "fake-task-id-create"
 
     def test_create_bad_account_fails(self, db):
         svc = CanaryService(db=db)
@@ -111,11 +114,14 @@ class TestCanaryGet:
 class TestCanaryDelete:
     @patch("src.tasks.delete_canary")
     def test_delete_queues_task(self, mock_task, db, seed):
-        mock_task.delay = MagicMock()
+        mock_result = MagicMock()
+        mock_result.id = "fake-task-id-delete"
+        mock_task.delay = MagicMock(return_value=mock_result)
         svc = CanaryService(db=db)
         result = svc.delete("test-canary")
         assert result.success
         assert result.data["status"] == "queued"
+        assert result.data["task_id"] == "fake-task-id-delete"
 
     def test_delete_nonexistent(self, db):
         svc = CanaryService(db=db)

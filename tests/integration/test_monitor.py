@@ -3,7 +3,7 @@ from datetime import datetime
 from unittest.mock import MagicMock, patch
 from src.monitors.base import Alert
 from src import tasks
-from src.models import CanaryResource, ResourceStatus, CloudEnvironment, ResourceType
+from src.models import CanaryResource, ResourceStatus, Account, ResourceType
 
 @patch("src.tasks.monitoring.SessionLocal")
 @patch("src.tasks.monitoring.monitor_factory")
@@ -12,14 +12,19 @@ def test_monitor_active_canaries(MockFactory, MockSessionLocal):
     db = MagicMock()
     MockSessionLocal.return_value = db
     
-    # Mock Canary
-    env = CloudEnvironment(provider_type="AWS")
+    # Mock Canary with Account
+    cred = MagicMock()
+    cred.provider = "AWS"
+    cred.secrets = {"access_key_id": "test", "secret_access_key": "test"}
+    account = MagicMock(spec=Account)
+    account.credential = cred
+    account.account_id = "123456789012"
     canary = CanaryResource(
         id="canary-1", 
         name="test-canary", 
         status=ResourceStatus.ACTIVE,
-        environment=env
     )
+    canary.account = account
     db.query.return_value.filter.return_value.all.return_value = [canary]
     
     # Mock Monitor

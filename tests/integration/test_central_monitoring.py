@@ -3,13 +3,16 @@ import unittest
 from unittest.mock import MagicMock, patch
 from datetime import datetime
 from src.monitors.aws_cloudtrail import AwsCloudTrailMonitor
-from src.models import CanaryResource, ResourceType, CloudEnvironment
+from src.models import CanaryResource, ResourceType, Account
 
 class TestCentralMonitoring(unittest.TestCase):
     def setUp(self):
-        self.env = MagicMock(spec=CloudEnvironment)
-        self.env.credentials = {"AWS_ACCESS_KEY_ID": "test", "AWS_SECRET_ACCESS_KEY": "test"}
-        self.env.config = {"region": "us-east-1"}
+        cred = MagicMock()
+        cred.provider = "AWS"
+        cred.secrets = {"AWS_ACCESS_KEY_ID": "test", "AWS_SECRET_ACCESS_KEY": "test"}
+        self.env = MagicMock(spec=Account)
+        self.env.credential = cred
+        self.env.account_id = "123456789012"
         self.monitor = AwsCloudTrailMonitor(self.env)
 
     @patch("src.monitors.aws_cloudtrail.boto3.client")

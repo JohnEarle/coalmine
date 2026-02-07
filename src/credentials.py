@@ -48,35 +48,53 @@ def get_credentials_for_account(account: Account) -> Dict[str, str]:
     raise ValueError(f"Unknown auth_type: {cred.auth_type}")
 
 
+def _resolve_secret(secrets: dict, *keys) -> str | None:
+    """Look up a value by multiple possible key names."""
+    for key in keys:
+        val = secrets.get(key)
+        if val:
+            return val
+    return None
+
+
 def _build_static_env(cred: Credential, account: Account) -> Dict[str, str]:
     """
     Build env vars from static credentials.
     
-    Works for:
-    - AWS: access_key_id, secret_access_key
-    - GCP: service_account_json
+    Handles flexible key formats (with/without provider prefix, case variations)
+    to support credentials created via CLI, YAML sync, or direct API.
     """
     env = {}
     secrets = cred.secrets or {}
     
     if cred.provider == "AWS":
-        if secrets.get("access_key_id"):
-            env["AWS_ACCESS_KEY_ID"] = secrets["access_key_id"]
-        if secrets.get("secret_access_key"):
-            env["AWS_SECRET_ACCESS_KEY"] = secrets["secret_access_key"]
-        if secrets.get("session_token"):
-            env["AWS_SESSION_TOKEN"] = secrets["session_token"]
-        if secrets.get("region"):
-            env["AWS_REGION"] = secrets["region"]
-            env["AWS_DEFAULT_REGION"] = secrets["region"]
+        access_key = _resolve_secret(secrets, "access_key_id", "AWS_ACCESS_KEY_ID", "aws_access_key_id")
+        secret_key = _resolve_secret(secrets, "secret_access_key", "AWS_SECRET_ACCESS_KEY", "aws_secret_access_key")
+        session_token = _resolve_secret(secrets, "session_token", "AWS_SESSION_TOKEN", "aws_session_token")
+        region = _resolve_secret(secrets, "region", "AWS_REGION", "aws_region")
+        
+        if access_key:
+            env["AWS_ACCESS_KEY_ID"] = access_key
+        if secret_key:
+            env["AWS_SECRET_ACCESS_KEY"] = secret_key
+        if session_token:
+            env["AWS_SESSION_TOKEN"] = session_token
+        if region:
+            env["AWS_REGION"] = region
+            env["AWS_DEFAULT_REGION"] = region
             
     elif cred.provider == "GCP":
-        json_content = secrets.get("service_account_json")
+        json_content = _resolve_secret(
+            secrets, "service_account_json", "GOOGLE_CREDENTIALS_JSON", "google_credentials_json"
+        )
+        path_val = _resolve_secret(
+            secrets, "GOOGLE_APPLICATION_CREDENTIALS", "google_application_credentials"
+        )
+
         if json_content:
             path = _write_gcp_creds(json_content)
             env["GOOGLE_APPLICATION_CREDENTIALS"] = path
             
-            # Extract project_id from JSON if present
             try:
                 data = json.loads(json_content) if isinstance(json_content, str) else json_content
                 if data.get("project_id"):
@@ -84,6 +102,8 @@ def _build_static_env(cred: Credential, account: Account) -> Dict[str, str]:
                     env["CLOUDSDK_CORE_PROJECT"] = data["project_id"]
             except Exception as e:
                 logger.warning(f"Failed to parse GCP creds JSON: {e}")
+        elif path_val:
+            env["GOOGLE_APPLICATION_CREDENTIALS"] = path_val
         
         # Account's account_id overrides extracted project
         if account.account_id and account.account_id != "unknown":
@@ -217,17 +237,3 @@ def _write_gcp_creds(creds_data, prefix: str = "gcp_creds") -> str:
             f.write(content)
     return path
 
-
-# =============================================================================
-# Backwards Compatibility: Adapter for existing CloudEnvironment usage
-# =============================================================================
-
-def get_credentials_for_environment(environment) -> Dict[str, str]:
-    """
-    Backwards-compatible wrapper for existing CloudEnvironment objects.
-    
-    This allows gradual migration - existing code using CloudEnvironment
-    continues to work while new code uses Account.
-    """
-    from .tasks.helpers import _get_execution_env
-    return _get_execution_env(environment)

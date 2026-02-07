@@ -1,8 +1,16 @@
-# Coalmine - Configuration Guide
+# Configuration
 
-This directory contains YAML configuration files for easy management of canary types and detection strategies.
+YAML configuration files for Coalmine. Environment variables can be used with `${VAR_NAME}` syntax in any YAML value.
 
 ## Files
+
+### `credentials.yaml`
+Defines cloud credentials and their associated accounts. Sync with `coalmine credentials sync`.
+
+**To add a credential:**
+1. Add an entry under `credentials:` with `provider`, `auth_type`, `secrets`, and `accounts`
+2. Run `coalmine credentials sync --dry-run` to preview
+3. Run `coalmine credentials sync` to apply
 
 ### `resource_types.yaml`
 Defines all canary resource types supported by the system.
@@ -16,10 +24,17 @@ Defines all canary resource types supported by the system.
 ### `detections.yaml`
 Defines how to detect access to each canary resource type.
 
-**To modify detection patterns:**
-1. Find the resource type entry
-2. Modify the `filter_pattern` or `event_names`
-3. Restart the worker
+### `alert_outputs.yaml`
+Configures notification channels (email, webhook, syslog).
+
+### `api_keys.yaml`
+Defines API keys for programmatic access. Keys support permissions, scopes, and IP allowlists.
+
+### `auth.yaml`
+Authentication configuration — JWT settings, session config, and optional OIDC provider.
+
+### `rbac_model.conf` / `rbac_policy.csv`
+Casbin RBAC model and policy definitions. Controls which roles can access which resources.
 
 ## Available Detection Strategies
 
@@ -29,9 +44,7 @@ Defines how to detect access to each canary resource type.
 | `CloudTrailLookup` | AWS | Uses CloudTrail LookupEvents API |
 | `GcpAuditLogQuery` | GCP | Queries Cloud Logging with filter syntax |
 
-## Examples
-
-### Adding a new AWS resource type
+## Example: Adding a New AWS Resource Type
 
 ```yaml
 # resource_types.yaml

@@ -20,7 +20,7 @@ auth:
   # Admin seeding (creates initial admin on first startup)
   seed:
     admin_email: ${ADMIN_EMAIL:-admin@coalmine.io}
-    admin_password: ${ADMIN_PASSWORD:-}
+    admin_password: ${ADMIN_PASSWORD:-changeme}
     admin_role: admin
     admin_display_name: Administrator
   

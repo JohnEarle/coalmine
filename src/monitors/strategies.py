@@ -4,8 +4,19 @@ from datetime import datetime
 import json
 from .base import Alert
 from ..logging_config import get_logger
+from ..config_loader import get_ua_exclusion_tokens
 
 logger = get_logger(__name__)
+
+
+def _is_self_generated(user_agent: str) -> bool:
+    """Return True if the user-agent contains a known exclusion token."""
+    if not user_agent:
+        return False
+    for token in get_ua_exclusion_tokens():
+        if token in user_agent:
+            return True
+    return False
 
 class DetectionStrategy(ABC):
     @abstractmethod
@@ -78,12 +89,15 @@ class CloudWatchLogsQuery(DetectionStrategy):
             for event in response.get('events', []):
                 try:
                     ct_event = json.loads(event.get('message'))
+                    ua = ct_event.get('userAgent') or "Unknown"
+                    if _is_self_generated(ua):
+                        continue
                     alerts.append(Alert(
                         resource_name=phys_name,
                         event_time=datetime.fromtimestamp(event.get('timestamp')/1000.0),
                         event_name=ct_event.get('eventName'),
                         source_ip=ct_event.get('sourceIPAddress') or "Unknown",
-                        user_agent=ct_event.get('userAgent') or "Unknown",
+                        user_agent=ua,
                         external_id=event.get('eventId'),
                         raw_data=ct_event
                     ))
@@ -120,6 +134,7 @@ class CloudTrailLookup(DetectionStrategy):
                 if key == "ResourceName" and resource.resource_type == ResourceType.AWS_BUCKET:
                     lookup_value = f"arn:aws:s3:::{phys_name}"
                 
+
                 response = client.lookup_events(
                         LookupAttributes=[
                         {'AttributeKey': key, 'AttributeValue': lookup_value}
@@ -128,7 +143,6 @@ class CloudTrailLookup(DetectionStrategy):
                     EndTime=end_time,
                     MaxResults=50  # Limit results to prevent memory issues
                 )
-                
                 for event in response.get('Events', []):
                     event_id = event.get('EventId')
                     event_name = event.get('EventName')
@@ -142,12 +156,15 @@ class CloudTrailLookup(DetectionStrategy):
                         seen_event_ids.add(event_id)
                         
                     ct_event = json.loads(event.get('CloudTrailEvent') or '{}')
+                    ua = ct_event.get('userAgent') or "Unknown"
+                    if _is_self_generated(ua):
+                        continue
                     alerts.append(Alert(
                         resource_name=phys_name,
                         event_time=event.get('EventTime'),
                         event_name=event_name,
                         source_ip=ct_event.get('sourceIPAddress') or "Unknown",
-                        user_agent=ct_event.get('userAgent') or "Unknown",
+                        user_agent=ua,
                         external_id=event_id,
                         raw_data=ct_event
                     ))
@@ -194,6 +211,9 @@ class GcpAuditLogQuery(DetectionStrategy):
                     ip = payload['requestMetadata'].get('callerIp', 'Unknown')
                     ua = payload['requestMetadata'].get('callerSuppliedUserAgent', 'Unknown')
                 
+                if _is_self_generated(ua):
+                    continue
+
                 # Try to extract clearer event info if available (e.g. for SA auth)
                 if 'authenticationInfo' in payload:
                     principal = payload['authenticationInfo'].get('principalEmail')

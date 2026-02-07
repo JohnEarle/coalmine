@@ -13,7 +13,7 @@ class ResourceManager(ABC):
         
         Args:
             physical_id: The actual physical ID/name of the resource (e.g., IAM user name, bucket name).
-            env_config: Configuration dictionary from the CloudEnvironment (includes project_id, etc.).
+            env_config: Configuration dictionary from the Account (includes project_id, etc.).
             module_params: Additional module parameters from the CanaryResource.
             
         Returns:
@@ -28,7 +28,7 @@ class ResourceManager(ABC):
         Args:
             resource_val: The identifier to filter on (e.g. ARN, Bucket Name, Service Account Email).
             log_resource: The LoggingResource ORM object.
-            env_obj: The CloudEnvironment ORM object.
+            env_obj: The Account ORM object.
         """
         pass
 
@@ -39,6 +39,6 @@ class ResourceManager(ABC):
         Args:
             resource_val: The identifier to filter on.
             log_resource: The LoggingResource ORM object.
-            env_obj: The CloudEnvironment ORM object.
+            env_obj: The Account ORM object.
         """
         pass

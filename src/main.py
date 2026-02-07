@@ -7,8 +7,7 @@ def main():
     init_db()
     print("Database Initialized.")
     
-    # In a real app, this might start a web server. 
-    # For now, we just keep the container alive so we can exec into it.
+    # Keep container alive for CLI access
     print("App is running. Waiting for commands...")
     while True:
         time.sleep(60)

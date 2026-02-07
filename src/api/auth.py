@@ -154,7 +154,6 @@ async def get_current_auth(
     )
 
 
-# Backwards compatibility alias
 async def get_current_key(
     request: Request,
     api_key: str = Security(api_key_header)

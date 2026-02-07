@@ -15,7 +15,7 @@ class HealthCheckFactory:
     @classmethod
     def get_checker(cls, resource: Any) -> HealthCheck:
         """Get the appropriate health checker for a resource instance."""
-        # Simple exact type match for now
+        # Exact type match
         checker_cls = cls._checkers.get(type(resource))
         if not checker_cls:
             raise ValueError(f"No health checker registered for type {type(resource)}")

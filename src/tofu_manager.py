@@ -38,11 +38,7 @@ class TofuManager:
         return result.stdout
 
     def init(self, env: dict = None, backend_config: dict = None, clean_env: bool = False):
-        # If the work dir is empty, we might need to copy templates first
-        # Ideally, we don't modify the template dir. 
-        # Standard pattern: copy source files to work_dir.
-        
-        # Clean sync of tf files
+        # Copy template .tf files to work_dir before init
         self.work_dir.mkdir(parents=True, exist_ok=True)
         for file in self.template_dir.glob("*.tf"):
             shutil.copy(file, self.work_dir)
@@ -58,7 +54,7 @@ class TofuManager:
         # Construct -var arguments
         args = ["apply", "-auto-approve", "-no-color", "-input=false"]
         for k, v in vars_dict.items():
-            # For complex types (maps), we might need json encoding, keeping it simple for now
+            # JSON-encode complex types (maps, lists)
             if isinstance(v, (dict, list)):
                 v = json.dumps(v)
             args.extend(["-var", f"{k}={v}"])
@@ -91,7 +87,7 @@ class TofuManager:
                 v = json.dumps(v)
             args.extend(["-var", f"{k}={v}"])
             
-        # We need to handle exit codes manually for plan
+        # Handle exit codes manually (plan uses detailed exit codes)
         if clean_env:
             full_env = env if env else {}
         else:

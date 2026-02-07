@@ -46,6 +46,9 @@ def get_api_keys() -> Dict[str, ApiKeyConfig]:
     """
     Load and cache API keys from config/api_keys.yaml.
     
+    Keys with unresolvable env vars are skipped (logged as warnings)
+    rather than crashing the entire auth system.
+    
     Returns:
         Dict mapping key names to their ApiKeyConfig.
     """
@@ -53,10 +56,13 @@ def get_api_keys() -> Dict[str, ApiKeyConfig]:
     if _api_keys_cache is None:
         raw = _load_yaml("api_keys.yaml")
         raw_keys = raw.get("api_keys", {})
-        expanded = _expand_env_vars_recursive(raw_keys)
-        _api_keys_cache = {
-            name: ApiKeyConfig(**cfg) for name, cfg in expanded.items()
-        }
+        _api_keys_cache = {}
+        for name, cfg in raw_keys.items():
+            try:
+                expanded = _expand_env_vars_recursive(cfg)
+                _api_keys_cache[name] = ApiKeyConfig(**expanded)
+            except (ValueError, KeyError) as e:
+                logger.warning(f"Skipping API key '{name}': {e}")
     return _api_keys_cache
 
 

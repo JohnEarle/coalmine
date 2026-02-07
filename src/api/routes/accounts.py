@@ -4,7 +4,7 @@ Account Management API Routes
 Provides endpoints for managing cloud accounts (deployment targets).
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional, List
 from datetime import datetime
 
@@ -42,8 +42,7 @@ class AccountResponse(BaseModel):
     metadata: Optional[dict] = None
     created_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
     
     @classmethod
     def from_model(cls, account):

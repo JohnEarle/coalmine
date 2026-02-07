@@ -100,6 +100,10 @@ app.include_router(alerts.router, prefix="/api/v1", tags=["alerts"])
 app.include_router(credentials.router, prefix="/api/v1", tags=["credentials"])
 app.include_router(accounts.router, prefix="/api/v1", tags=["accounts"])
 
+# Task log routes
+from .routes import tasks
+app.include_router(tasks.router, prefix="/api/v1", tags=["tasks"])
+
 # API key management routes
 from .routes import api_keys
 app.include_router(api_keys.router, prefix="/api/v1", tags=["api-keys"])
@@ -116,22 +120,7 @@ app.include_router(users.router, prefix="/api/v1", tags=["users"])
 try:
     from ..auth.users import fastapi_users, jwt_backend, cookie_backend
     from ..models import User
-    from fastapi_users.schemas import BaseUser, BaseUserCreate, BaseUserUpdate
-    from pydantic import ConfigDict
-    
-    # Extended schemas with role field
-    class UserRead(BaseUser[__import__('uuid').UUID]):
-        role: str
-        display_name: str | None = None
-        model_config = ConfigDict(from_attributes=True)
-    
-    class UserCreate(BaseUserCreate):
-        role: str = "viewer"
-        display_name: str | None = None
-    
-    class UserUpdate(BaseUserUpdate):
-        role: str | None = None
-        display_name: str | None = None
+    from .schemas.users import UserRead, UserCreate, UserUpdate
     
     # Auth routes (login/logout)
     app.include_router(
@@ -153,12 +142,9 @@ try:
         tags=["users"]
     )
     
-    # Registration route (admin only in production, open for first user)
-    app.include_router(
-        fastapi_users.get_register_router(UserRead, UserCreate),
-        prefix="/auth",
-        tags=["auth"]
-    )
+    # Registration: open when zero users exist, superuser-only otherwise
+    from .routes._register_guard import router as guarded_register_router
+    app.include_router(guarded_register_router, prefix="/auth", tags=["auth"])
     
     logger.info("fastapi-users authentication enabled")
     

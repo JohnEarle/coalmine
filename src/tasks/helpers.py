@@ -5,8 +5,6 @@ from ..models import SessionLocal, ResourceType
 from ..tofu_manager import TofuManager
 from ..logging_config import get_logger
 import os
-import json
-import hashlib
 
 logger = get_logger(__name__)
 
@@ -24,107 +22,25 @@ def get_db():
         db.close()
 
 
-def _write_gcp_creds(creds_dict) -> str:
-    """Write GCP credentials to a temp file and return path."""
-    if isinstance(creds_dict, str):
-        content = creds_dict
-    else:
-        content = json.dumps(creds_dict, indent=2)
-        
-    h = hashlib.md5(content.encode()).hexdigest()
-    path = f"/tmp/gcp_creds_{h}.json"
-    if not os.path.exists(path):
-        with open(path, "w") as f:
-            f.write(content)
-    return path
-
-
-def _get_execution_env_from_account(account) -> dict:
+def _get_execution_env(account) -> dict:
     """
     Construct environment variables for Tofu execution from Account model.
-    
-    Uses Account → Credential relationship to get secrets.
+
+    Delegates to credentials.get_credentials_for_account for the actual
+    credential resolution, then appends task-specific env vars (IAC token).
     """
     if not account:
         return {}
-    
-    cred = account.credential
-    if not cred:
-        return {}
-    
-    env = {}
-    secrets = cred.secrets or {}
-    
-    if cred.provider == "AWS":
-        # Support various credential key formats (with/without aws_ prefix, case variations)
-        access_key = (secrets.get("AWS_ACCESS_KEY_ID") or 
-                     secrets.get("aws_access_key_id") or
-                     secrets.get("access_key_id"))
-        secret_key = (secrets.get("AWS_SECRET_ACCESS_KEY") or 
-                     secrets.get("aws_secret_access_key") or
-                     secrets.get("secret_access_key"))
-        session_token = (secrets.get("AWS_SESSION_TOKEN") or 
-                        secrets.get("aws_session_token") or
-                        secrets.get("session_token"))
-        region = (secrets.get("AWS_REGION") or 
-                 secrets.get("region") or 
-                 secrets.get("aws_region"))
-        
-        if access_key:
-            env["AWS_ACCESS_KEY_ID"] = access_key
-        if secret_key:
-            env["AWS_SECRET_ACCESS_KEY"] = secret_key
-        if session_token:
-            env["AWS_SESSION_TOKEN"] = session_token
-        if region:
-            env["AWS_REGION"] = region
-            env["AWS_DEFAULT_REGION"] = region
-            
-    elif cred.provider == "GCP":
-        json_content = (secrets.get("service_account_json") or 
-                       secrets.get("GOOGLE_CREDENTIALS_JSON") or 
-                       secrets.get("google_credentials_json"))
-        
-        path_val = (secrets.get("GOOGLE_APPLICATION_CREDENTIALS") or 
-                   secrets.get("google_application_credentials"))
 
-        if json_content:
-            path = _write_gcp_creds(json_content)
-            env["GOOGLE_APPLICATION_CREDENTIALS"] = path
-            
-            try:
-                if isinstance(json_content, str):
-                    data = json.loads(json_content)
-                else:
-                    data = json_content
-                
-                extracted_project = data.get("project_id")
-                if extracted_project:
-                    env["GOOGLE_CLOUD_PROJECT"] = extracted_project
-                    env["CLOUDSDK_CORE_PROJECT"] = extracted_project
-            except Exception as e:
-                logger.warning(f"Failed to parse GCP credentials JSON for project_id: {e}")
+    from ..credentials import get_credentials_for_account
+    env = get_credentials_for_account(account)
 
-        elif path_val:
-            env["GOOGLE_APPLICATION_CREDENTIALS"] = path_val
-        
-        # Use account.account_id as project_id if not extracted from SA JSON
-        if "GOOGLE_CLOUD_PROJECT" not in env:
-            env["GOOGLE_CLOUD_PROJECT"] = account.account_id
-            env["CLOUDSDK_CORE_PROJECT"] = account.account_id
-            
+    # Append secret UA token so monitoring can filter out self-generated events
+    iac_token = os.getenv("COALMINE_IAC_UA_TOKEN")
+    if iac_token:
+        env["TF_APPEND_USER_AGENT"] = f"coalmine-iac/{iac_token}"
+
     return env
-
-
-# Backwards compatibility alias - delegates to account-based version
-def _get_execution_env(env_or_account) -> dict:
-    """
-    Construct environment variables for Tofu execution.
-    
-    Backwards-compatible function that works with Account objects.
-    Legacy CloudEnvironment objects are no longer supported.
-    """
-    return _get_execution_env_from_account(env_or_account)
 
 
 
@@ -145,12 +61,17 @@ def _get_template_name(resource_type) -> str:
     return get_template_name(val)
 
 
+import re
 from sqlalchemy import text
 from urllib.parse import urlparse
+
+_SAFE_SCHEMA_RE = re.compile(r"^[a-z0-9_]+$")
 
 
 def _ensure_schema_exists(schema_name: str):
     """Create the Postgres schema if it doesn't exist."""
+    if not _SAFE_SCHEMA_RE.match(schema_name):
+        raise ValueError(f"Invalid schema name: {schema_name!r}")
     db = SessionLocal()
     try:
         db.execute(text(f"CREATE SCHEMA IF NOT EXISTS {schema_name}"))

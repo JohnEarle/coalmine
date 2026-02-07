@@ -14,7 +14,7 @@ import argparse
 # Ensure root is in path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from .commands import canary, logging_cmd, alerts, credentials, accounts, auth, user
+from .commands import canary, logging_cmd, alerts, credentials, accounts, auth, user, tasks
 from .utils import print_custom_help
 
 
@@ -30,6 +30,7 @@ Resources:
   accounts     Manage cloud accounts (list, add, update, enable, disable, remove, validate)
   logs         Manage logging resources (create, list, scan)
   alerts       View security alerts
+  task         View async task status and history
   auth         Manage authentication (API keys, sessions, RBAC)
   user         Manage user accounts and roles
 
@@ -54,6 +55,7 @@ Examples:
     accounts.register_commands(subparsers)
     logging_cmd.register_commands(subparsers)
     alerts.register_commands(subparsers)
+    tasks.register_commands(subparsers)
     auth.register_commands(subparsers)
     user.register_commands(subparsers)
 

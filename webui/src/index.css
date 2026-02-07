@@ -117,13 +117,11 @@ body::after {
   inset: 0;
   pointer-events: none;
   z-index: 9999;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 2px,
-    rgba(0, 0, 0, 0.06) 2px,
-    rgba(0, 0, 0, 0.06) 4px
-  );
+  background: repeating-linear-gradient(0deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 0, 0, 0.06) 2px,
+      rgba(0, 0, 0, 0.06) 4px);
   mix-blend-mode: multiply;
 }
 
@@ -139,20 +137,43 @@ body::after {
 
 /* Amber LED pulse — slow breathe like a hardware indicator */
 @keyframes led-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.6;
+  }
 }
 
 /* Red alert pulse */
 @keyframes alert-pulse {
-  0%, 100% { opacity: 1; text-shadow: 0 0 6px rgba(255, 51, 51, 0.6); }
-  50% { opacity: 0.8; text-shadow: 0 0 12px rgba(255, 51, 51, 0.8); }
+
+  0%,
+  100% {
+    opacity: 1;
+    text-shadow: 0 0 6px rgba(255, 51, 51, 0.6);
+  }
+
+  50% {
+    opacity: 0.8;
+    text-shadow: 0 0 12px rgba(255, 51, 51, 0.8);
+  }
 }
 
 /* Cursor blink for terminal feel */
 @keyframes cursor-blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0;
+  }
 }
 
 /* Modal entrance */
@@ -161,6 +182,7 @@ body::after {
     opacity: 0;
     transform: scale(0.96) translateY(-8px);
   }
+
   to {
     opacity: 1;
     transform: scale(1) translateY(0);
@@ -1016,14 +1038,37 @@ body::after {
    Utilities
    ============================================================================= */
 
-.flex { display: flex; }
-.items-center { align-items: center; }
-.justify-between { justify-content: space-between; }
-.gap-2 { gap: 0.5rem; }
-.gap-4 { gap: 1rem; }
-.text-muted { color: var(--color-text-secondary); }
-.text-sm { font-size: 0.8125rem; }
-.font-mono { font-family: 'IBM Plex Mono', monospace; }
+.flex {
+  display: flex;
+}
+
+.items-center {
+  align-items: center;
+}
+
+.justify-between {
+  justify-content: space-between;
+}
+
+.gap-2 {
+  gap: 0.5rem;
+}
+
+.gap-4 {
+  gap: 1rem;
+}
+
+.text-muted {
+  color: var(--color-text-secondary);
+}
+
+.text-sm {
+  font-size: 0.8125rem;
+}
+
+.font-mono {
+  font-family: 'IBM Plex Mono', monospace;
+}
 
 /* =============================================================================
    Data Tables (page-level usage)
@@ -1453,4 +1498,180 @@ code {
 ::selection {
   background: rgba(232, 160, 32, 0.3);
   color: var(--color-accent-hover);
+}
+
+/* =============================================================================
+   Task Activity — Top-Right Status Indicator
+   ============================================================================= */
+
+.task-activity {
+  position: fixed;
+  top: 0.75rem;
+  right: 1rem;
+  z-index: 200;
+}
+
+.task-activity-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  position: relative;
+  box-shadow: var(--shadow-panel);
+}
+
+.task-activity-btn:hover {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+  box-shadow: 0 0 8px rgba(232, 160, 32, 0.2);
+}
+
+.task-activity-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  background: var(--color-accent);
+  color: var(--color-text-inverse);
+  font-family: 'VT323', monospace;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  border-radius: 50%;
+  animation: led-pulse 1.5s ease-in-out infinite;
+  box-shadow: 0 0 8px rgba(232, 160, 32, 0.5);
+}
+
+.task-activity-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 340px;
+  max-height: 420px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--border-radius);
+  box-shadow: 0 0 24px rgba(232, 160, 32, 0.08), var(--shadow-panel);
+  overflow: hidden;
+  animation: modal-in 150ms ease;
+}
+
+.task-activity-header {
+  padding: 0.625rem 0.75rem;
+  border-bottom: 1px solid var(--color-border);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--color-text-muted);
+  background: var(--color-bg-tertiary);
+}
+
+.task-activity-list {
+  overflow-y: auto;
+  max-height: 360px;
+}
+
+.task-activity-empty {
+  padding: 1.5rem;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.task-activity-item {
+  display: flex;
+  gap: 0.625rem;
+  padding: 0.625rem 0.75rem;
+  border-bottom: 1px solid var(--color-border);
+  transition: background var(--transition-fast);
+}
+
+.task-activity-item:last-child {
+  border-bottom: none;
+}
+
+.task-activity-item:hover {
+  background: rgba(232, 160, 32, 0.04);
+}
+
+.task-activity-icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.task-activity-icon .spin {
+  animation: spin 1.5s linear infinite;
+}
+
+.task-activity-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.task-activity-name {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-activity-meta {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-top: 2px;
+}
+
+.task-activity-canary {
+  color: var(--color-accent);
+}
+
+.task-activity-time {
+  color: var(--color-text-muted);
+}
+
+.task-activity-error {
+  font-size: 0.6875rem;
+  color: var(--color-error);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Status colors */
+.task-status-pending {
+  color: var(--color-text-muted);
+}
+
+.task-status-started {
+  color: var(--color-accent);
+  text-shadow: 0 0 6px rgba(232, 160, 32, 0.4);
+}
+
+.task-status-success {
+  color: var(--color-success);
+  text-shadow: 0 0 6px rgba(51, 204, 51, 0.4);
+}
+
+.task-status-failure {
+  color: var(--color-error);
+  text-shadow: 0 0 6px rgba(255, 51, 51, 0.4);
 }

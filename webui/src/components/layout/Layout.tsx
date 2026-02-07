@@ -1,5 +1,6 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
+import TaskActivity from '../TaskActivity'
 import {
     LayoutDashboard,
     Bird,
@@ -95,6 +96,7 @@ export default function Layout() {
 
             {/* Main Content */}
             <main className="main-content">
+                <TaskActivity />
                 <div className="page-content">
                     <Outlet />
                 </div>

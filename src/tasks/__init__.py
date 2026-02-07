@@ -1,17 +1,13 @@
 """
 Coalmine Tasks Package.
-
-Re-exports all Celery tasks for backwards compatibility.
 """
 from .canary import create_canary, rotate_canary, delete_canary, check_rotations
 from .logging import create_logging_resource
 from .monitoring import monitor_active_canaries
 from .validation import run_health_checks
 
-# Also expose ActionType for test compatibility
 from ..models import ActionType
 
-# Re-export helpers that may be used by external code
 from .helpers import (
     TOFU_BASE_DIR, STATE_BASE_DIR,
     _get_execution_env, _get_template_name, _get_backend_config

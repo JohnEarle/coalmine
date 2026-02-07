@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Enum as SqlEnum, create_engine, JSON, Boolean
+from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Enum as SqlEnum, create_engine, JSON, Boolean, Text
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 from sqlalchemy.dialects.postgresql import UUID, ENUM as PgEnum
 from fastapi_users.db import SQLAlchemyBaseUserTableUUID, SQLAlchemyBaseOAuthAccountTableUUID
@@ -6,6 +6,8 @@ import uuid
 import datetime
 import enum
 import os
+
+from .secret_field import EncryptedJSON
 
 Base = declarative_base()
 
@@ -53,6 +55,14 @@ class AlertStatus(enum.Enum):
     RESOLVED = "RESOLVED"
 
 
+class TaskStatus(enum.Enum):
+    """Lifecycle status of an async Celery task."""
+    PENDING = "PENDING"
+    STARTED = "STARTED"
+    SUCCESS = "SUCCESS"
+    FAILURE = "FAILURE"
+
+
 class CredentialAuthType(enum.Enum):
     """How the credential authenticates to cloud providers."""
     STATIC = "STATIC"           # Direct access keys / SA JSON
@@ -71,12 +81,10 @@ class AccountSource(enum.Enum):
     """How the account was added to Coalmine."""
     MANUAL = "MANUAL"           # User added manually
     DISCOVERED = "DISCOVERED"   # Auto-discovered from org
-    MIGRATED = "MIGRATED"       # Migrated from CloudEnvironment
+    MIGRATED = "MIGRATED"       # Migrated from legacy config
 
 
-# For PostgreSQL, we use SqlEnum with create_constraint=False to prevent auto-creation
-# of the type (we handle that in init_db to avoid race conditions).
-# For SQLite, we use the default SqlEnum behavior.
+# Enum column factory: handles PostgreSQL native enums and SQLite fallback
 
 def _make_enum_column(py_enum, pg_type_name):
     """Create an enum type that works with both PostgreSQL and SQLite."""
@@ -99,6 +107,7 @@ _alert_status_col = lambda: _make_enum_column(AlertStatus, 'alertstatus')
 _credential_auth_type_col = lambda: _make_enum_column(CredentialAuthType, 'credentialauthtype')
 _credential_scope_col = lambda: _make_enum_column(CredentialScope, 'credentialscope')
 _account_source_col = lambda: _make_enum_column(AccountSource, 'accountsource')
+_task_status_col = lambda: _make_enum_column(TaskStatus, 'taskstatus')
 
 # Keep PgEnum definitions for explicit type creation in init_db()
 if _is_postgres:
@@ -142,6 +151,11 @@ if _is_postgres:
         name='accountsource',
         create_type=False
     )
+    _pg_task_status = PgEnum(
+        *[e.value for e in TaskStatus],
+        name='taskstatus',
+        create_type=False
+    )
 else:
     _pg_resource_type = None
     _pg_logging_provider_type = None
@@ -151,10 +165,11 @@ else:
     _pg_credential_auth_type = None
     _pg_credential_scope = None
     _pg_account_source = None
+    _pg_task_status = None
 
 
 # =============================================================================
-# NEW: Credential/Account Abstraction for Multi-Account Support
+# Credential/Account Abstraction for Multi-Account Support
 # =============================================================================
 
 class Credential(Base):
@@ -177,7 +192,7 @@ class Credential(Base):
     auth_type = Column(_credential_auth_type_col(), nullable=False, default=CredentialAuthType.STATIC)
     
     # Encrypted secrets (access keys, SA JSON, etc.)
-    secrets = Column(JSON, nullable=True)
+    secrets = Column(EncryptedJSON, nullable=True)
     
     # Discovery configuration (optional)
     # e.g., {"role_name": "CoalmineDeployer", "include_ous": [...], "org_id": "..."}
@@ -310,6 +325,30 @@ class ResourceHistory(Base):
     resource = relationship("CanaryResource", back_populates="history")
 
 
+class TaskLog(Base):
+    """Tracks the lifecycle of async Celery tasks with domain context."""
+    __tablename__ = 'task_logs'
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    celery_task_id = Column(String, unique=True, nullable=False, index=True)
+    task_name = Column(String, nullable=False)          # e.g. "create_canary"
+    source = Column(String, nullable=False, default="system")  # "user" or "system"
+    status = Column(_task_status_col(), nullable=False, default=TaskStatus.PENDING)
+
+    # Optional domain link
+    canary_id = Column(UUID(as_uuid=True), ForeignKey('canary_resources.id'), nullable=True)
+    canary = relationship("CanaryResource")
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+
+    # Outcome
+    result_data = Column(JSON, nullable=True)
+    error = Column(String, nullable=True)
+
+
 # =============================================================================
 # User Management (fastapi-users)
 # =============================================================================
@@ -355,6 +394,7 @@ def _create_pg_enums_if_not_exist(connection):
         (_pg_credential_auth_type, 'credentialauthtype'),
         (_pg_credential_scope, 'credentialscope'),
         (_pg_account_source, 'accountsource'),
+        (_pg_task_status, 'taskstatus'),
     ]
     
     for pg_enum, type_name in enum_types:

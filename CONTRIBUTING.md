@@ -41,7 +41,8 @@ We use a **Registry Pattern** to support multi-cloud extensibility.
 ### 4. **Database (`src/models.py`)**
 A PostgreSQL database stores the inventory of active canaries, their current status, and audit history.
 - **`CanaryResource`**: The main record for a deployed decoy.
-- **`CloudEnvironment`**: Stores credentials and config for a specific cloud account.
+- **`Account`**: Represents a cloud account (AWS account, GCP project) linked to a Credential.
+- **`Credential`**: Stores secrets and auth configuration for accessing cloud providers.
 
 ## Working with OpenTofu Templates
 

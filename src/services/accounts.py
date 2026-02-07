@@ -197,11 +197,11 @@ class AccountService(BaseService):
             if not account:
                 return ServiceResult.fail(f"Account '{identifier}' not found")
             
-            # TODO: Check for canaries once migration is complete
-            # if account.canaries:
-            #     return ServiceResult.fail(
-            #         f"Cannot delete account with {len(account.canaries)} deployed canaries"
-            #     )
+            # Prevent deletion if account has active canaries
+            if account.canaries:
+                return ServiceResult.fail(
+                    f"Cannot delete account with {len(account.canaries)} deployed canaries"
+                )
             
             name = account.name
             self.db.delete(account)

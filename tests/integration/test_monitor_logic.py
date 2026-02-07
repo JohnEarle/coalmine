@@ -3,15 +3,18 @@ import pytest
 from unittest.mock import MagicMock
 from datetime import datetime, timedelta
 from src.monitors.aws_cloudtrail import AwsCloudTrailMonitor
-from src.models import CanaryResource, ResourceType, CloudEnvironment
+from src.models import CanaryResource, ResourceType, Account
 import json
 
 def test_aws_bucket_monitoring_logic():
     # Setup
-    env = MagicMock(spec=CloudEnvironment)
-    env.credentials = {"AWS_ACCESS_KEY_ID": "test", "AWS_SECRET_ACCESS_KEY": "test"}
-    env.config = {"region": "us-east-1"}
-    
+    cred = MagicMock()
+    cred.provider = "AWS"
+    cred.secrets = {"AWS_ACCESS_KEY_ID": "test", "AWS_SECRET_ACCESS_KEY": "test"}
+    env = MagicMock(spec=Account)
+    env.credential = cred
+    env.account_id = "123456789012"
+
     resource = MagicMock(spec=CanaryResource)
     resource.resource_type = ResourceType.AWS_BUCKET
     resource.current_resource_id = "my-test-bucket"

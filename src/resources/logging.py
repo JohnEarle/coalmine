@@ -21,8 +21,7 @@ class AwsCloudTrailHandler(ResourceManager):
         return vars_dict
 
     def enable_logging(self, resource_val: str, log_resource: LoggingResource, account: Account) -> None:
-        # Logging Resources generally don't log themselves into other logging resources
-        # But if we were to support "logging-logging", this is where it would go.
+        # No-op: logging resources do not log themselves
         pass
 
     def disable_logging(self, resource_val: str, log_resource: LoggingResource, account: Account) -> None:

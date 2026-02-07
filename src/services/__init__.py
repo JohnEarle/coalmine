@@ -12,6 +12,7 @@ from .alerts import AlertService
 from .logging_resources import LoggingResourceService
 from .auth import AuthService
 from .user_service import UserService
+from .tasks import TaskService
 
 __all__ = [
     "ServiceResult",
@@ -24,5 +25,6 @@ __all__ = [
     "LoggingResourceService",
     "AuthService",
     "UserService",
+    "TaskService",
 ]
 

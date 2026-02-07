@@ -18,11 +18,10 @@ celery_app.conf.update(
         'src.tasks.monitoring',
         'src.tasks.validation',
         'src.tasks.notifications',
+        'src.task_signals',
     ),
 )
 
-# Beat schedule will be defined in another file or dynamically, but we can put static ones here if needed.
-# For now, we'll keep it simple.
 celery_app.conf.beat_schedule = {
     'check-rotations-every-minute': {
         'task': 'src.tasks.canary.check_rotations',

@@ -1,6 +1,7 @@
 import requests
 import boto3
-from .base import CanaryTrigger, logger
+from botocore.config import Config as BotoConfig
+from .base import CanaryTrigger, logger, _get_test_ua_suffix
 from ..models import CanaryResource, ResourceType
 
 class BucketTrigger(CanaryTrigger):
@@ -10,6 +11,7 @@ class BucketTrigger(CanaryTrigger):
              logger.error("No bucket name found in current_resource_id")
              return False
 
+        ua_suffix = _get_test_ua_suffix()
         url = ""
         if canary.resource_type == ResourceType.AWS_BUCKET:
              # Use boto3 to generate an Authenticated CloudTrail event (ListObjects)
@@ -25,7 +27,8 @@ class BucketTrigger(CanaryTrigger):
                      aws_secret_access_key=creds.get("aws_secret_access_key") or creds.get("AWS_SECRET_ACCESS_KEY") or creds.get("secret_access_key"),
                      region_name=creds.get("region") or creds.get("AWS_REGION") or "us-east-1"
                  )
-                 s3 = session.client("s3")
+                 cfg = BotoConfig(user_agent_extra=ua_suffix) if ua_suffix else None
+                 s3 = session.client("s3", config=cfg)
                  
                  logger.info(f"Triggering {canary.name} via boto3 ListObjectsV2...")
                  # This will likely work (App has admin) or Fail (if bucket policy denies)
@@ -51,7 +54,10 @@ class BucketTrigger(CanaryTrigger):
         logger.info(f"Triggering {canary.name} via HTTP GET {url}...")
         try:
              # Expect 403 or 404, but the Access Log is generated
-             resp = requests.get(url, timeout=5)
+             headers = {}
+             if ua_suffix:
+                 headers["User-Agent"] = ua_suffix
+             resp = requests.get(url, timeout=5, headers=headers)
              logger.info(f"Response: {resp.status_code}")
              return True
         except Exception as e:

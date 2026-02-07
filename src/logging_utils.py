@@ -163,7 +163,7 @@ def _get_aws_canary_arn(canary: CanaryResource) -> list:
     return []
 
 
-# Legacy functions - kept for backwards compatibility but now call Terraform
+# DEPRECATED: Use _apply_logging_with_canaries() instead
 def _update_gcp_sink_filter(account, sink_name, resource_val, resource_type: ResourceType, add: bool = True):
     """
     DEPRECATED: Use _apply_logging_with_canaries() instead.

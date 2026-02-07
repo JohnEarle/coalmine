@@ -21,69 +21,11 @@ Usage:
     result = sync_credentials_from_yaml(force=True)
 """
 from typing import Dict, List, Any, Optional
-from pathlib import Path
-import os
-import re
-import yaml
 from .models import SessionLocal, Credential, Account, CredentialAuthType, AccountSource
+from .config_loader import _load_yaml, _expand_env_vars_recursive
 from .logging_config import get_logger
 
 logger = get_logger(__name__)
-
-# Config directory path
-CONFIG_DIR = Path(os.getenv("CONFIG_DIR", "/app/config"))
-
-
-def _load_yaml(filename: str) -> Dict[str, Any]:
-    """Load a YAML file from the config directory."""
-    filepath = CONFIG_DIR / filename
-    if not filepath.exists():
-        # Fallback to local config for development
-        local_path = Path(__file__).parent.parent / "config" / filename
-        if local_path.exists():
-            filepath = local_path
-        else:
-            return {}
-    
-    with open(filepath, 'r') as f:
-        return yaml.safe_load(f) or {}
-
-
-def _expand_env_var(value: str) -> str:
-    """Expand environment variables in a string value."""
-    pattern = r'\$\{([^}]+)\}'
-    
-    def replacer(match):
-        expr = match.group(1)
-        
-        if ':-' in expr:
-            var_name, default = expr.split(':-', 1)
-            return os.getenv(var_name, default)
-        elif ':?' in expr:
-            var_name, error_msg = expr.split(':?', 1)
-            value = os.getenv(var_name)
-            if value is None:
-                raise ValueError(error_msg)
-            return value
-        else:
-            var_name = expr
-            value = os.getenv(var_name)
-            if value is None:
-                raise ValueError(f"Environment variable {var_name} is not set")
-            return value
-    
-    return re.sub(pattern, replacer, value)
-
-
-def _expand_env_vars_recursive(obj: Any) -> Any:
-    """Recursively expand environment variables in dicts, lists, and strings."""
-    if isinstance(obj, dict):
-        return {k: _expand_env_vars_recursive(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [_expand_env_vars_recursive(item) for item in obj]
-    elif isinstance(obj, str):
-        return _expand_env_var(obj)
-    return obj
 
 
 def get_credentials_config(expand_env_vars: bool = True) -> Dict[str, Dict]:

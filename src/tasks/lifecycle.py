@@ -40,7 +40,7 @@ class ResourceLifecycleManager:
     def __enter__(self):
         self.db = SessionLocal()
         if self.resource_id:
-            # Try finding in both tables (polymorphic lookup would be better but keeping simple)
+            # Look up in both resource tables
             try:
                 u_id = uuid.UUID(self.resource_id)
                 self.resource = self.db.query(CanaryResource).filter(CanaryResource.id == u_id).first()

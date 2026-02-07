@@ -6,7 +6,7 @@ Provides business logic for managing canary resources.
 from typing import Optional
 
 from .base import BaseService, ServiceResult, ListResult
-from src.models import CanaryResource, Account
+from src.models import CanaryResource, Account, TaskLog, TaskStatus
 
 
 class CanaryService(BaseService):
@@ -49,7 +49,7 @@ class CanaryService(BaseService):
             return ServiceResult.fail(f"Account '{account_id}' not found")
         
         try:
-            create_canary_task.delay(
+            async_result = create_canary_task.delay(
                 name=name,
                 resource_type_str=resource_type,
                 interval_seconds=interval,
@@ -57,7 +57,15 @@ class CanaryService(BaseService):
                 module_params=params,
                 logging_resource_id_str=logging_id
             )
-            return ServiceResult.ok({"status": "queued", "name": name})
+            log = TaskLog(
+                celery_task_id=async_result.id,
+                task_name="create_canary",
+                source="user",
+                status=TaskStatus.PENDING,
+            )
+            self.db.add(log)
+            self.db.commit()
+            return ServiceResult.ok({"status": "queued", "name": name, "task_id": async_result.id})
         except Exception as e:
             return ServiceResult.fail(f"Error queuing canary creation: {e}")
     
@@ -105,11 +113,21 @@ class CanaryService(BaseService):
             return ServiceResult.fail(f"Canary '{identifier}' not found")
         
         try:
-            delete_canary_task.delay(str(canary.id))
+            async_result = delete_canary_task.delay(str(canary.id))
+            log = TaskLog(
+                celery_task_id=async_result.id,
+                task_name="delete_canary",
+                source="user",
+                status=TaskStatus.PENDING,
+                canary_id=canary.id,
+            )
+            self.db.add(log)
+            self.db.commit()
             return ServiceResult.ok({
                 "status": "queued",
                 "id": str(canary.id),
-                "name": canary.name
+                "name": canary.name,
+                "task_id": async_result.id,
             })
         except Exception as e:
             return ServiceResult.fail(f"Error queuing canary deletion: {e}")

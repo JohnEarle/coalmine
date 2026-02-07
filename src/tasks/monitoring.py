@@ -24,6 +24,7 @@ def monitor_active_canaries():
         ).all()
         
         for canary in active_canaries:
+
             try:
                 account = canary.account
                 if not account: 
@@ -45,6 +46,7 @@ def monitor_active_canaries():
                     start_time = end_time - datetime.timedelta(minutes=60)
                 
                 alerts = monitor.check(canary, start_time, end_time)
+
 
                 # Update checkpoint
                 canary.last_checked_at = end_time

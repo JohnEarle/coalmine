@@ -61,7 +61,7 @@ def _check_and_update(db, resource, label):
             if resource.status != ResourceStatus.ERROR:
                 resource.status = ResourceStatus.ERROR
                 
-                # History is only on Canaries currently, but we can check attribute
+                # Record history if the resource supports it
                 if hasattr(resource, 'history'):
                     history = ResourceHistory(
                         resource_id=resource.id,
@@ -71,7 +71,6 @@ def _check_and_update(db, resource, label):
                     db.add(history)
                 db.commit()
         else:
-            # Auto-recovery could be nice, but for now just log
             logger.info(f"{label} {resource.name} is healthy.")
             if resource.status == ResourceStatus.ERROR:
                 resource.status = ResourceStatus.ACTIVE

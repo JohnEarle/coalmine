@@ -148,8 +148,8 @@ class TestAccountDelete:
         assert result.success is True
         assert isolated_db.query(Account).filter_by(name="del-acct").first() is None
 
-    def test_delete_with_canaries_currently_allowed(self, isolated_db, make_credential):
-        """Currently, deletion succeeds even with active canaries (TODO guard commented out)."""
+    def test_delete_with_canaries_blocked(self, isolated_db, make_credential):
+        """Deletion should fail when account has active canaries."""
         cred = make_credential(name="busy-del-cred")
         svc = AccountService(db=isolated_db)
         created = svc.create(name="busy-acct", credential_id=str(cred.id), account_id="111")
@@ -165,8 +165,8 @@ class TestAccountDelete:
         isolated_db.commit()
 
         result = svc.delete("busy-acct")
-        # TODO: Update this to assert failure once FK guard is implemented
-        assert result.success is True
+        assert result.success is False
+        assert "canaries" in result.error.lower()
 
     def test_delete_nonexistent(self, isolated_db):
         svc = AccountService(db=isolated_db)

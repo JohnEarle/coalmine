@@ -52,8 +52,7 @@ class SyslogNotifier(Notifier):
             if not self._syslog_logger:
                 return
 
-        # CEF (Common Event Format) style or simple kv string?
-        # Let's do a KV string for generic syslog compatibility
+        # KV-formatted syslog message
         msg = (
             f"CANARY_ALERT "
             f"canary_name=\"{alert.canary.name}\" "

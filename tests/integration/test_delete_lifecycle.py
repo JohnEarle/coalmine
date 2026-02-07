@@ -10,8 +10,8 @@ from sqlalchemy.orm import sessionmaker
 
 from src.models import (
     Base, CanaryResource, ResourceHistory, ResourceType,
-    ResourceStatus, ActionType, CloudEnvironment, LoggingResource,
-    LoggingProviderType
+    ResourceStatus, ActionType, Account, Credential, LoggingResource,
+    LoggingProviderType, CredentialAuthType
 )
 from src import tasks
 
@@ -36,16 +36,24 @@ def db():
 
 @pytest.fixture
 def test_environment(db):
-    """Create a test AWS environment."""
-    env = CloudEnvironment(
-        name="delete-test-env",
-        provider_type="AWS",
-        credentials={"AWS_ACCESS_KEY_ID": "test", "AWS_SECRET_ACCESS_KEY": "test"},
-        config={"region": "us-east-1"}
+    """Create a test AWS account with credential."""
+    cred = Credential(
+        name="delete-test-cred",
+        provider="AWS",
+        auth_type=CredentialAuthType.STATIC,
+        secrets={"access_key_id": "test", "secret_access_key": "test", "region": "us-east-1"},
     )
-    db.add(env)
+    db.add(cred)
+    db.flush()
+    account = Account(
+        name="delete-test-account",
+        provider="AWS",
+        account_id="123456789012",
+        credential_id=cred.id,
+    )
+    db.add(account)
     db.commit()
-    return env
+    return account
 
 
 @pytest.fixture

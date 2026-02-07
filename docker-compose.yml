@@ -45,6 +45,11 @@ services:
       - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
       - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
       - OIDC_PROVIDER_NAME=${OIDC_PROVIDER_NAME:-SSO}
+      # Coalmine tokens
+      - COALMINE_IAC_UA_TOKEN
+      - COALMINE_TEST_UA_TOKEN
+      - COALMINE_API_KEY_AUTOMATION
+      - COALMINE_API_KEY_DASHBOARD
       # AWS/GCP Credentials - pass via .env file or host environment
       - AWS_ACCESS_KEY_ID
       - AWS_SECRET_ACCESS_KEY
@@ -68,6 +73,10 @@ services:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-coalmine}:${POSTGRES_PASSWORD:-coalmine_dev}@postgres:5432/${POSTGRES_DB:-coalmine}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FORMAT=${LOG_FORMAT:-json}
+      # Coalmine tokens
+      - COALMINE_IAC_UA_TOKEN
+      - COALMINE_TEST_UA_TOKEN
+      # AWS/GCP Credentials
       - AWS_ACCESS_KEY_ID
       - AWS_SECRET_ACCESS_KEY
       - AWS_DEFAULT_REGION
