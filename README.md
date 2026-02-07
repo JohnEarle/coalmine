@@ -1,4 +1,4 @@
-![Coalmine — Canary Token Management](github-banner.png)
+![Coalmine — Canary Token Management](images/coalmine.png)
 
 > **Cloud Canary Token Management** — Deploy, monitor, and rotate deceptive credentials across AWS and GCP to detect unauthorized access.
 
