@@ -1,4 +1,5 @@
-import { FileText } from 'lucide-react'
+import { FileText, Plus } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { useLoggingResources } from '../hooks/useApi'
 
 /**
@@ -14,6 +15,10 @@ export default function LoggingPage() {
                     <h1 className="page-title">Logging Resources</h1>
                     <p className="page-description">Log aggregation sources for canary detection</p>
                 </div>
+                <Link to="/logging/new" className="btn btn-primary">
+                    <Plus size={18} />
+                    Add Source
+                </Link>
             </div>
 
             <div className="card">
@@ -59,7 +64,11 @@ export default function LoggingPage() {
                     <div className="empty-state">
                         <FileText className="empty-state-icon" />
                         <h3>No logging resources configured</h3>
-                        <p>Logging resources are managed via the CLI.</p>
+                        <p>Add a logging source to start detecting canary access.</p>
+                        <Link to="/logging/new" className="btn btn-primary" style={{ marginTop: '1rem' }}>
+                            <Plus size={18} />
+                            Add Logging Source
+                        </Link>
                     </div>
                 )}
             </div>

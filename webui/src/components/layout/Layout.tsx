@@ -7,7 +7,9 @@ import {
     AlertTriangle,
     LogOut,
     User,
+    Users,
     Key,
+    KeyRound,
     Building2,
 } from 'lucide-react'
 
@@ -65,6 +67,16 @@ export default function Layout() {
                     <NavLink to="/alerts" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
                         <AlertTriangle />
                         <span>Alerts</span>
+                    </NavLink>
+
+                    <NavLink to="/users" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                        <Users />
+                        <span>Users</span>
+                    </NavLink>
+
+                    <NavLink to="/api-keys" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                        <KeyRound />
+                        <span>API Keys</span>
                     </NavLink>
                 </nav>
 

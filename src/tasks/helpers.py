@@ -56,11 +56,19 @@ def _get_execution_env_from_account(account) -> dict:
     secrets = cred.secrets or {}
     
     if cred.provider == "AWS":
-        # Support both uppercase and lowercase credential keys
-        access_key = secrets.get("AWS_ACCESS_KEY_ID") or secrets.get("aws_access_key_id")
-        secret_key = secrets.get("AWS_SECRET_ACCESS_KEY") or secrets.get("aws_secret_access_key")
-        session_token = secrets.get("AWS_SESSION_TOKEN") or secrets.get("aws_session_token")
-        region = secrets.get("AWS_REGION") or secrets.get("region") or secrets.get("aws_region")
+        # Support various credential key formats (with/without aws_ prefix, case variations)
+        access_key = (secrets.get("AWS_ACCESS_KEY_ID") or 
+                     secrets.get("aws_access_key_id") or
+                     secrets.get("access_key_id"))
+        secret_key = (secrets.get("AWS_SECRET_ACCESS_KEY") or 
+                     secrets.get("aws_secret_access_key") or
+                     secrets.get("secret_access_key"))
+        session_token = (secrets.get("AWS_SESSION_TOKEN") or 
+                        secrets.get("aws_session_token") or
+                        secrets.get("session_token"))
+        region = (secrets.get("AWS_REGION") or 
+                 secrets.get("region") or 
+                 secrets.get("aws_region"))
         
         if access_key:
             env["AWS_ACCESS_KEY_ID"] = access_key

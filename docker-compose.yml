@@ -35,9 +35,16 @@ services:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-coalmine}:${POSTGRES_PASSWORD:-coalmine_dev}@postgres:5432/${POSTGRES_DB:-coalmine}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FORMAT=${LOG_FORMAT:-json}
-      # WebUI Session Authentication
-      - WEBUI_ADMIN_USER=${WEBUI_ADMIN_USER:-admin}
-      - WEBUI_ADMIN_PASSWORD=${WEBUI_ADMIN_PASSWORD:-}
+      # Auth & seeding
+      - SECRET_KEY=${SECRET_KEY:-coalmine-dev-secret-change-in-production}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@coalmine.io}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      # OIDC SSO (set via .env or host environment)
+      - OIDC_ENABLED=${OIDC_ENABLED:-false}
+      - OIDC_ISSUER=${OIDC_ISSUER:-}
+      - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
+      - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
+      - OIDC_PROVIDER_NAME=${OIDC_PROVIDER_NAME:-SSO}
       # AWS/GCP Credentials - pass via .env file or host environment
       - AWS_ACCESS_KEY_ID
       - AWS_SECRET_ACCESS_KEY

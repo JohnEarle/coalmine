@@ -73,6 +73,47 @@ export function useCanaries() {
 }
 
 /**
+ * Hook to fetch a single canary by ID
+ */
+export function useCanary(canaryId: string | undefined) {
+    return useQuery({
+        queryKey: ['canary', canaryId],
+        queryFn: async (): Promise<Canary> => {
+            const response = await fetch(`/api/v1/canaries/${canaryId}`)
+            if (!response.ok) throw new Error('Failed to fetch canary')
+            return response.json()
+        },
+        enabled: !!canaryId,
+        refetchOnWindowFocus: false,
+    })
+}
+
+/**
+ * Canary credentials from the API
+ */
+export interface CanaryCredentials {
+    canary_id: string
+    canary_name: string
+    credentials: Record<string, unknown> | null
+}
+
+/**
+ * Hook to fetch credentials for a canary
+ */
+export function useCanaryCredentials(canaryId: string | undefined) {
+    return useQuery({
+        queryKey: ['canary-credentials', canaryId],
+        queryFn: async (): Promise<CanaryCredentials> => {
+            const response = await fetch(`/api/v1/canaries/${canaryId}/credentials`)
+            if (!response.ok) throw new Error('Failed to fetch credentials')
+            return response.json()
+        },
+        enabled: !!canaryId,
+        refetchOnWindowFocus: false,
+    })
+}
+
+/**
  * Hook to fetch all accounts (deployment targets)
  */
 export function useAccounts() {
@@ -189,6 +230,62 @@ export function useTriggerCanary() {
                 throw new Error(error.detail || 'Failed to trigger canary')
             }
             return response.json()
+        },
+    })
+}
+
+/**
+ * Logging provider type from metadata API
+ */
+export interface LoggingType {
+    value: string
+    name: string
+    description: string
+    provider: string
+}
+
+/**
+ * Hook to fetch available logging provider types
+ */
+export function useLoggingTypes() {
+    return useQuery({
+        queryKey: ['logging-types'],
+        queryFn: async (): Promise<LoggingType[]> => {
+            const response = await fetch('/api/v1/meta/logging-types')
+            if (!response.ok) throw new Error('Failed to fetch logging types')
+            const data = await response.json()
+            return data.types
+        },
+        refetchOnWindowFocus: false,
+    })
+}
+
+/**
+ * Hook to create a new logging resource
+ */
+export function useCreateLoggingResource() {
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: async (data: {
+            name: string
+            provider_type: string
+            account_id: string
+            config?: Record<string, unknown>
+        }) => {
+            const response = await fetch('/api/v1/logging-resources/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data),
+            })
+            if (!response.ok) {
+                const error = await response.json()
+                throw new Error(error.detail || 'Failed to create logging resource')
+            }
+            return response.json()
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['logging'] })
         },
     })
 }

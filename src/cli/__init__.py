@@ -14,7 +14,7 @@ import argparse
 # Ensure root is in path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from .commands import canary, logging_cmd, alerts, credentials, accounts
+from .commands import canary, logging_cmd, alerts, credentials, accounts, auth, user
 from .utils import print_custom_help
 
 
@@ -30,6 +30,8 @@ Resources:
   accounts     Manage cloud accounts (list, add, update, enable, disable, remove, validate)
   logs         Manage logging resources (create, list, scan)
   alerts       View security alerts
+  auth         Manage authentication (API keys, sessions, RBAC)
+  user         Manage user accounts and roles
 
 Examples:
   coalmine credentials list
@@ -38,6 +40,10 @@ Examples:
   coalmine accounts validate prod-east
   coalmine canary list
   coalmine alerts list --canary my-canary
+  coalmine auth key list
+  coalmine auth session list
+  coalmine user list
+  coalmine user roles
 """
     )
     subparsers = parser.add_subparsers(dest="resource", help="Resource to manage")
@@ -48,6 +54,8 @@ Examples:
     accounts.register_commands(subparsers)
     logging_cmd.register_commands(subparsers)
     alerts.register_commands(subparsers)
+    auth.register_commands(subparsers)
+    user.register_commands(subparsers)
 
     # Help command
     subparsers.add_parser("help", help="Show detailed usage guide")

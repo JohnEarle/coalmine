@@ -114,6 +114,17 @@ def migrate(force: bool = False):
     print("\nEnsuring all tables exist...")
     Base.metadata.create_all(bind=engine)
     
+    # Add any missing columns to legacy tables
+    print("\nApplying column migrations...")
+    try:
+        from migrate_accounts import migrate_account_support
+        migrate_account_support()
+    except ImportError:
+        # migrate_accounts.py might not exist in older versions
+        pass
+    except Exception as e:
+        print(f"  Warning: account migration failed: {e}")
+    
     print("\nMigration complete.")
 
 

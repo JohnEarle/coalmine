@@ -1,0 +1,46 @@
+# Authentication Configuration
+# ============================
+#
+# Supports environment variable expansion:
+#   - ${VAR_NAME}           - Required, fails if not set
+#   - ${VAR_NAME:-default}  - Optional with default value
+#   - ${VAR_NAME:?error}    - Required with custom error message
+
+auth:
+  # JWT configuration (single source of truth for signing secrets)
+  jwt:
+    secret_key: ${SECRET_KEY:-coalmine-dev-secret-change-in-production}
+    lifetime_seconds: 86400  # 24 hours
+
+  # Session middleware (used for OIDC state storage)
+  session:
+    secret_key: ${SECRET_KEY:-coalmine-dev-secret-change-in-production}
+    cookie_secure: ${COOKIE_SECURE:-false}  # Set true in production
+  
+  # Admin seeding (creates initial admin on first startup)
+  seed:
+    admin_email: ${ADMIN_EMAIL:-admin@coalmine.io}
+    admin_password: ${ADMIN_PASSWORD:-}
+    admin_role: admin
+    admin_display_name: Administrator
+  
+  # OIDC/OAuth2 SSO
+  oidc:
+    enabled: ${OIDC_ENABLED:-false}
+    provider_name: ${OIDC_PROVIDER_NAME:-SSO}
+    issuer: ${OIDC_ISSUER:-}
+    client_id: ${OIDC_CLIENT_ID:-}
+    client_secret: ${OIDC_CLIENT_SECRET:-}
+    scopes: ["openid", "profile", "email"]
+    # Map OIDC claims to Coalmine roles
+    role_claim: "groups"
+    role_map:
+      coalmine-admins: admin
+      coalmine-operators: operator
+    default_role: viewer
+
+# RBAC configuration
+rbac:
+  # Path to Casbin model and policy files
+  model_path: ${RBAC_MODEL_PATH:-config/rbac_model.conf}
+  policy_path: ${RBAC_POLICY_PATH:-config/rbac_policy.csv}

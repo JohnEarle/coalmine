@@ -1,4 +1,4 @@
-import { useState, useCallback, ReactNode, createContext, useContext } from 'react'
+import { useState, useCallback, useRef, ReactNode, createContext, useContext } from 'react'
 import { X, AlertTriangle } from 'lucide-react'
 
 interface ConfirmOptions {
@@ -30,24 +30,28 @@ interface ConfirmProviderProps {
 export function ConfirmProvider({ children }: ConfirmProviderProps) {
     const [isOpen, setIsOpen] = useState(false)
     const [options, setOptions] = useState<ConfirmOptions | null>(null)
-    const [resolveRef, setResolveRef] = useState<((value: boolean) => void) | null>(null)
+    // useRef instead of useState — React's setState treats functions as updaters
+    // and would immediately call resolve(null), closing the modal
+    const resolveRef = useRef<((value: boolean) => void) | null>(null)
 
     const confirm = useCallback((opts: ConfirmOptions): Promise<boolean> => {
         return new Promise((resolve) => {
             setOptions(opts)
-            setResolveRef(() => resolve)
+            resolveRef.current = resolve
             setIsOpen(true)
         })
     }, [])
 
     const handleConfirm = () => {
         setIsOpen(false)
-        resolveRef?.(true)
+        resolveRef.current?.(true)
+        resolveRef.current = null
     }
 
     const handleCancel = () => {
         setIsOpen(false)
-        resolveRef?.(false)
+        resolveRef.current?.(false)
+        resolveRef.current = null
     }
 
     return (
@@ -58,7 +62,7 @@ export function ConfirmProvider({ children }: ConfirmProviderProps) {
                     <div className="modal-content" onClick={e => e.stopPropagation()}>
                         <div className="modal-header">
                             {options.dangerous && (
-                                <AlertTriangle size={20} style={{ color: 'var(--color-warning)' }} />
+                                <AlertTriangle size={20} style={{ color: 'var(--color-error)' }} />
                             )}
                             <h3>{options.title || 'Confirm'}</h3>
                             <button className="btn btn-ghost btn-sm" onClick={handleCancel}>

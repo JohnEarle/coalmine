@@ -109,7 +109,7 @@ def create_canary(name: str, resource_type_str: str, interval_seconds: int = 864
         # Build variables
         handler = ResourceRegistry.get_handler(resource_type)
         
-        # Prepare Account Config (Project ID, etc)
+        # Prepare Account Config (Project ID, region, etc)
         env_conf = {}
         if account_obj:
             cred = account_obj.credential
@@ -118,6 +118,13 @@ def create_canary(name: str, resource_type_str: str, interval_seconds: int = 864
             # Use account_id as project_id for GCP if not set
             if "project_id" not in env_conf and account_obj.account_id:
                 env_conf["project_id"] = account_obj.account_id
+            # Extract AWS region from credentials for region-dependent resources
+            if cred and cred.secrets:
+                region = (cred.secrets.get("region") or 
+                         cred.secrets.get("aws_region") or
+                         cred.secrets.get("AWS_REGION"))
+                if region:
+                    env_conf["aws_region"] = region
 
         # Ensure project_id is passed if available in environment
         if "project_id" not in env_conf and "GOOGLE_CLOUD_PROJECT" in exec_env:

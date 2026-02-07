@@ -1,0 +1,50 @@
+# Casbin RBAC Policy for Coalmine
+# ================================
+# Format: p, role, resource, action
+# Format: g, child_role, parent_role (inheritance)
+
+# Role inheritance (superuser > admin > operator > viewer)
+g, superuser, admin
+g, admin, operator
+g, operator, viewer
+
+# Viewer permissions (read-only)
+p, viewer, canaries, read
+p, viewer, alerts, read
+p, viewer, logging, read
+p, viewer, credentials, read
+p, viewer, accounts, read
+p, viewer, meta, read
+
+# Operator permissions (read + write + delete)
+p, operator, canaries, write
+p, operator, canaries, delete
+p, operator, alerts, write
+p, operator, logging, write
+p, operator, logging, delete
+p, operator, credentials, write
+p, operator, credentials, delete
+p, operator, accounts, write
+p, operator, accounts, delete
+
+# Admin-only permissions
+p, admin, users, manage
+p, admin, api_keys, manage
+p, admin, settings, manage
+
+# API Keys - all roles can read their own, admin can manage all
+p, viewer, api-keys, read
+p, operator, api-keys, read
+p, operator, api-keys, write
+p, admin, api-keys, read
+p, admin, api-keys, write
+p, admin, api-keys, delete
+
+# Logging Resources - matching URL path pattern
+p, viewer, logging-resources, read
+p, operator, logging-resources, read
+p, operator, logging-resources, write
+p, operator, logging-resources, delete
+p, admin, logging-resources, read
+p, admin, logging-resources, write
+p, admin, logging-resources, delete

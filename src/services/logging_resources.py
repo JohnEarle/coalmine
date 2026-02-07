@@ -58,7 +58,7 @@ class LoggingResourceService(BaseService):
                 name=name,
                 provider_type_str=provider_type,
                 account_id_str=str(account.id),
-                configuration=config
+                config=config
             )
             return ServiceResult.ok({"status": "queued", "name": name})
         except Exception as e:

@@ -21,6 +21,12 @@ variable "name" {
   description = "Name for the logging resource (used for bucket and sink)"
 }
 
+variable "canary_filters" {
+  type        = list(string)
+  description = "List of canary-specific filter clauses (e.g., email/resourceName patterns)"
+  default     = []
+}
+
 provider "google" {
   project = var.project_id
 }
@@ -85,6 +91,7 @@ resource "google_storage_bucket" "log_bucket" {
 # 3. Create Log Sink
 # Filters for logs where principalEmail OR resourceName contains "canary"
 # This captures both actions BY the canary and actions ON the canary.
+# Individual canary filters are added dynamically via the canary_filters variable.
 resource "google_logging_project_sink" "canary_sink" {
   name = "${var.name}-sink"
   
@@ -92,14 +99,15 @@ resource "google_logging_project_sink" "canary_sink" {
   destination = "storage.googleapis.com/${google_storage_bucket.log_bucket.name}"
   
   # Filter for Canary related audit logs
-  # Note: "cloudaudit.googleapis.com" covers both activity and data_access
+  # Base filter catches anything with "canary" in name
+  # canary_filters add specific email/resourceName patterns for each canary
   filter = <<EOT
 resource.type="project" OR resource.type="gcs_bucket" OR resource.type="service_account"
 AND log_id("cloudaudit.googleapis.com/activity") OR log_id("cloudaudit.googleapis.com/data_access")
 AND (
   protoPayload.authenticationInfo.principalEmail:"canary"
   OR protoPayload.resourceName:"canary"
-)
+${length(var.canary_filters) > 0 ? "  OR ${join("\n  OR ", var.canary_filters)}" : ""})
 EOT
 
   unique_writer_identity = true

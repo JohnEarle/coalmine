@@ -23,6 +23,7 @@ export default function CanaryCreatePage() {
         account_id: '',
         logging_id: '',
         interval: 0,
+        region: '', // For AWS_BUCKET type
     })
     const [error, setError] = useState('')
 
@@ -67,12 +68,19 @@ export default function CanaryCreatePage() {
         }
 
         try {
+            // Build params for type-specific fields
+            const params: Record<string, unknown> = {}
+            if (formData.resource_type === 'AWS_BUCKET' && formData.region.trim()) {
+                params.region = formData.region.trim()
+            }
+
             await createCanary.mutateAsync({
                 name: formData.name.trim(),
                 resource_type: formData.resource_type,
                 account_id: formData.account_id,
                 logging_id: formData.logging_id || '',
                 interval: formData.interval,
+                params: Object.keys(params).length > 0 ? params : undefined,
             })
             navigate('/canaries')
         } catch (err) {
@@ -173,6 +181,24 @@ export default function CanaryCreatePage() {
                         </select>
                         <p className="form-hint">Deployment target (AWS account or GCP project)</p>
                     </div>
+
+                    {/* Region - for AWS_BUCKET only */}
+                    {formData.resource_type === 'AWS_BUCKET' && (
+                        <div className="form-group">
+                            <label className="form-label" htmlFor="region">
+                                Region
+                            </label>
+                            <input
+                                id="region"
+                                type="text"
+                                className="form-input"
+                                value={formData.region}
+                                onChange={(e) => setFormData({ ...formData, region: e.target.value })}
+                                placeholder="us-east-2"
+                            />
+                            <p className="form-hint">AWS region for the bucket. Leave empty to use account default.</p>
+                        </div>
+                    )}
 
                     {/* Logging Resource - conditionally required */}
                     {selectedType?.requires_logging && (

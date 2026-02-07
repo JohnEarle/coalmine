@@ -15,6 +15,12 @@ variable "tags" {
   default     = {}
 }
 
+variable "canary_arns" {
+  description = "List of canary S3 bucket ARNs to monitor (dynamically added when canaries are created)"
+  type        = list(string)
+  default     = []
+}
+
 provider "aws" {
   region = var.region
 }
@@ -120,6 +126,7 @@ resource "aws_cloudtrail" "central_trail" {
   tags = var.tags
 
   # Log S3 Data Events for Canaries Only
+  # Base prefix catches pattern-named buckets, canary_arns adds specific bucket ARNs
   advanced_event_selector {
     name = "Log Canary S3 Events"
     
@@ -135,7 +142,10 @@ resource "aws_cloudtrail" "central_trail" {
     
     field_selector {
       field = "resources.ARN"
-      starts_with = ["arn:aws:s3:::${var.resource_prefix}"]
+      starts_with = concat(
+        ["arn:aws:s3:::${var.resource_prefix}"],
+        var.canary_arns
+      )
     }
   }
 
@@ -188,10 +198,8 @@ resource "aws_cloudtrail" "central_trail" {
        equals = ["Management"]
      }
   }
-
-  lifecycle {
-    ignore_changes = [advanced_event_selector]
-  }
+  
+  # NOTE: Removed ignore_changes lifecycle - we now manage filter state via Terraform
 }
 
 output "log_group_name" {

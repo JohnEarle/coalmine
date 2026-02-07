@@ -87,10 +87,10 @@ export default function CanariesPage() {
                                 {canaries.map((canary) => (
                                     <tr key={canary.id}>
                                         <td>
-                                            <div className="flex items-center gap-2">
+                                            <Link to={`/canaries/${canary.id}`} className="flex items-center gap-2 link-hover">
                                                 <Bird size={16} style={{ color: 'var(--color-accent)' }} />
                                                 <span className="font-mono">{canary.name}</span>
-                                            </div>
+                                            </Link>
                                         </td>
                                         <td>
                                             <span className="text-sm">{canary.resource_type}</span>

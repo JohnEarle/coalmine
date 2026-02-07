@@ -14,13 +14,16 @@ class BucketTrigger(CanaryTrigger):
         if canary.resource_type == ResourceType.AWS_BUCKET:
              # Use boto3 to generate an Authenticated CloudTrail event (ListObjects)
              try:
-                 env_creds = canary.environment.credentials
-                 # Construct session - handling assume role if needed, but for now strict keys
+                 # Get credentials from the linked account
+                 if not canary.account or not canary.account.credential:
+                     logger.error("No account/credential linked to canary")
+                     return False
+                 creds = canary.account.credential.secrets or {}
                  # Construct session
                  session = boto3.Session(
-                     aws_access_key_id=env_creds.get("aws_access_key_id") or env_creds.get("AWS_ACCESS_KEY_ID"),
-                     aws_secret_access_key=env_creds.get("aws_secret_access_key") or env_creds.get("AWS_SECRET_ACCESS_KEY"),
-                     region_name=env_creds.get("region", "us-east-1")
+                     aws_access_key_id=creds.get("aws_access_key_id") or creds.get("AWS_ACCESS_KEY_ID") or creds.get("access_key_id"),
+                     aws_secret_access_key=creds.get("aws_secret_access_key") or creds.get("AWS_SECRET_ACCESS_KEY") or creds.get("secret_access_key"),
+                     region_name=creds.get("region") or creds.get("AWS_REGION") or "us-east-1"
                  )
                  s3 = session.client("s3")
                  

@@ -7,15 +7,21 @@
 #   - ${VAR_NAME:?error}    - Required with custom error message
 #
 # Permissions: read, write, admin
-# Scopes: canaries, environments, logging, alerts, all
+# Scopes: canaries, credentials, accounts, logging, alerts, all
+#
+# Enhanced features:
+#   - expires_at: ISO 8601 datetime (YYYY-MM-DDTHH:MM:SSZ), empty = never expires
+#   - ip_allowlist: List of CIDR blocks, empty = allow all
+#   - owner: Username of key owner (for user-tied keys)
 
 api_keys:
-  # Production automation key
+  # Production automation key (service account)
   automation:
     key: ${COALMINE_API_KEY_AUTOMATION:?Automation API key required}
     permissions: [read, write]
     scopes: [canaries, logging]
     description: "CI/CD pipeline automation"
+    # No expiration, no IP restriction, no owner = service key
   
   # Read-only dashboard key  
   dashboard:
@@ -23,6 +29,19 @@ api_keys:
     permissions: [read]
     scopes: [all]
     description: "Monitoring dashboard access"
+    ip_allowlist: []  # Empty = allow all
+  
+  # Example: User-tied API key with restrictions
+  # developer_jsmith:
+  #   key: ${DEV_KEY_JSMITH}
+  #   permissions: [read, write]
+  #   scopes: [canaries]
+  #   description: "John Smith's development key"
+  #   owner: jsmith  # Tied to session user
+  #   expires_at: "2026-12-31T23:59:59Z"
+  #   ip_allowlist:
+  #     - "10.0.0.0/8"      # Internal network
+  #     - "192.168.1.100"   # Specific IP
   
   # Uncomment for admin access
   # admin:

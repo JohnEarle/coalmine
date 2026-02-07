@@ -17,6 +17,27 @@ from ...config_loader import get_resource_types_config, get_logging_types_config
 router = APIRouter(prefix="/meta", tags=["metadata"])
 
 
+@router.get("/roles")
+async def get_roles() -> Dict[str, Any]:
+    """
+    Returns available user roles from the RBAC policy.
+    
+    WebUI uses this to populate role dropdowns dynamically.
+    When new roles are added to rbac_policy.csv, they
+    automatically appear here.
+    """
+    from ...services import UserService
+    
+    with UserService() as svc:
+        result = svc.list_roles()
+    
+    return {
+        "roles": [
+            {"value": r, "name": r.replace("_", " ").title()}
+            for r in result.items
+        ]
+    }
+
 @router.get("/resource-types")
 async def get_resource_types() -> Dict[str, Any]:
     """

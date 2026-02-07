@@ -11,7 +11,7 @@ detections:
   # AWS S3 Bucket - Uses CloudWatch Logs to query CloudTrail events
   AWS_BUCKET:
     strategy: CloudWatchLogsQuery
-    filter_pattern: '{ ($.eventSource = "s3.amazonaws.com") && ($.requestParameters.bucketName = "{resource_id}") && (($.eventName = "GetObject") || ($.eventName = "ListObjects") || ($.eventName = "ListObjectsV2") || ($.eventName = "GetBucketLocation") || ($.eventName = "HeadBucket")) }'
+    filter_pattern: '{ ($.eventSource = "s3.amazonaws.com") && ($.requestParameters.bucketName = "{resource_id}") && (($.eventName = "GetObject") || ($.eventName = "ListObjects") || ($.eventName = "ListObjectsV2") || ($.eventName = "GetBucketLocation") || ($.eventName = "HeadBucket") || ($.eventName = "PutObject") || ($.eventName = "DeleteObject")) }'
   
   # AWS IAM User - Uses CloudTrail LookupEvents API directly
   AWS_IAM_USER:

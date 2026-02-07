@@ -91,7 +91,7 @@ class CloudWatchLogsQuery(DetectionStrategy):
                     logger.warning(f"Error parsing log event: {e}")
                     
         except client.exceptions.ResourceNotFoundException:
-            pass
+            logger.warning(f"Log group '{log_group_name}' not found for {resource.name}")
         except Exception as e:
             logger.error(f"Error checking logs for {resource.name}: {e}")
 
@@ -110,11 +110,19 @@ class CloudTrailLookup(DetectionStrategy):
         phys_name = resource.current_resource_id
         seen_event_ids = set()
         
+        # Import here to avoid circular imports
+        from ..models import ResourceType
+        
         for key in self.lookup_attr_keys:
             try:
+                # Build lookup value - for S3 buckets with ResourceName, use ARN format
+                lookup_value = phys_name
+                if key == "ResourceName" and resource.resource_type == ResourceType.AWS_BUCKET:
+                    lookup_value = f"arn:aws:s3:::{phys_name}"
+                
                 response = client.lookup_events(
                         LookupAttributes=[
-                        {'AttributeKey': key, 'AttributeValue': phys_name}
+                        {'AttributeKey': key, 'AttributeValue': lookup_value}
                     ],
                     StartTime=start_time,
                     EndTime=end_time,

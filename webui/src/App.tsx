@@ -7,10 +7,14 @@ import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import CanariesPage from './pages/CanariesPage'
 import CanaryCreatePage from './pages/CanaryCreatePage'
+import CanaryDetailPage from './pages/CanaryDetailPage'
 import AccountsPage from './pages/AccountsPage'
 import AlertsPage from './pages/AlertsPage'
 import LoggingPage from './pages/LoggingPage'
+import LoggingCreatePage from './pages/LoggingCreatePage'
 import CredentialsPage from './pages/CredentialsPage'
+import UsersPage from './pages/UsersPage'
+import ApiKeysPage from './pages/ApiKeysPage'
 
 /**
  * Protected route wrapper - redirects to login if not authenticated
@@ -55,10 +59,14 @@ function AppRoutes() {
                 <Route index element={<DashboardPage />} />
                 <Route path="canaries" element={<CanariesPage />} />
                 <Route path="canaries/new" element={<CanaryCreatePage />} />
+                <Route path="canaries/:id" element={<CanaryDetailPage />} />
                 <Route path="credentials" element={<CredentialsPage />} />
                 <Route path="accounts" element={<AccountsPage />} />
                 <Route path="logging" element={<LoggingPage />} />
+                <Route path="logging/new" element={<LoggingCreatePage />} />
                 <Route path="alerts" element={<AlertsPage />} />
+                <Route path="users" element={<UsersPage />} />
+                <Route path="api-keys" element={<ApiKeysPage />} />
             </Route>
 
             {/* Catch-all redirect */}

@@ -10,6 +10,8 @@ from .credentials import CredentialService
 from .canaries import CanaryService
 from .alerts import AlertService
 from .logging_resources import LoggingResourceService
+from .auth import AuthService
+from .user_service import UserService
 
 __all__ = [
     "ServiceResult",
@@ -20,4 +22,7 @@ __all__ = [
     "CanaryService",
     "AlertService",
     "LoggingResourceService",
+    "AuthService",
+    "UserService",
 ]
+

@@ -1,6 +1,7 @@
-from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Enum as SqlEnum, create_engine, JSON
+from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Enum as SqlEnum, create_engine, JSON, Boolean
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 from sqlalchemy.dialects.postgresql import UUID, ENUM as PgEnum
+from fastapi_users.db import SQLAlchemyBaseUserTableUUID, SQLAlchemyBaseOAuthAccountTableUUID
 import uuid
 import datetime
 import enum
@@ -307,6 +308,36 @@ class ResourceHistory(Base):
     details = Column(JSON, nullable=True)
 
     resource = relationship("CanaryResource", back_populates="history")
+
+
+# =============================================================================
+# User Management (fastapi-users)
+# =============================================================================
+
+class OAuthAccount(SQLAlchemyBaseOAuthAccountTableUUID, Base):
+    """OAuth/OIDC account linked to a user."""
+    pass
+
+
+class User(SQLAlchemyBaseUserTableUUID, Base):
+    """
+    User account with role-based access control.
+    
+    Extends fastapi-users base table with Coalmine-specific fields.
+    """
+    # Role for RBAC (matches Casbin roles: admin, operator, viewer)
+    role = Column(String, nullable=False, default="viewer")
+    
+    # Display name (optional, for UI)
+    display_name = Column(String, nullable=True)
+    
+    # OAuth accounts linked to this user
+    oauth_accounts = relationship("OAuthAccount", lazy="joined")
+    
+    # Track who created this user (for audit)
+    created_by = Column(UUID(as_uuid=True), nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

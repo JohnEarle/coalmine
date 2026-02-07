@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Key, Plus, Trash2, Cloud, Shield } from 'lucide-react'
+import { useConfirm } from '../components/ConfirmModal'
 
 interface Credential {
     id: string
@@ -44,17 +45,24 @@ function useDeleteCredential() {
 export default function CredentialsPage() {
     const { data: credentials, isLoading, error } = useCredentials()
     const deleteMutation = useDeleteCredential()
+    const confirm = useConfirm()
     const [showCreate, setShowCreate] = useState(false)
 
     if (isLoading) return <div className="loading">Loading credentials...</div>
     if (error) return <div className="error-message">Error loading credentials</div>
 
     const handleDelete = async (id: string, name: string) => {
-        if (confirm(`Delete credential "${name}"? This will also delete all linked accounts.`)) {
+        const confirmed = await confirm({
+            title: 'Delete Credential',
+            message: `Delete credential "${name}"? This will also delete all linked accounts.`,
+            confirmText: 'Delete',
+            dangerous: true,
+        })
+        if (confirmed) {
             try {
                 await deleteMutation.mutateAsync(id)
-            } catch (err: unknown) {
-                alert(err instanceof Error ? err.message : 'Failed to delete')
+            } catch {
+                // Error is handled by mutation
             }
         }
     }
