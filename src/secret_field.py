@@ -67,11 +67,14 @@ class EncryptedJSON(TypeDecorator):
         """Decrypt stored ciphertext → dict for application use."""
         if value is None:
             return None
+        # Legacy: PostgreSQL may auto-deserialize old JSON column data into a dict
+        if isinstance(value, (dict, list)):
+            return value
         try:
             decrypted = _get_fernet().decrypt(value.encode())
             return json.loads(decrypted)
         except InvalidToken:
-            # Legacy plaintext JSON — decrypt failed, try raw parse
+            # Legacy plaintext JSON string — decrypt failed, try raw parse
             try:
                 result = json.loads(value)
                 logger.warning(

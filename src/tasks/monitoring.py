@@ -1,5 +1,10 @@
 """
 Canary access monitoring task - polls for alert events.
+
+Uses data-anchored checkpointing: the last known alert timestamp is the
+start of the query window. This guarantees no events are missed regardless
+of CloudTrail propagation delay. Deduplication on Alert.external_id
+prevents duplicate alerts from overlapping windows.
 """
 from ..celery_app import celery_app
 from ..models import (
@@ -7,11 +12,13 @@ from ..models import (
     ResourceStatus, ActionType, Alert, AlertStatus
 )
 from ..monitors import factory as monitor_factory
-from ..notifications.registry import NotificationRegistry
 from ..logging_config import get_logger
 import datetime
 
 logger = get_logger(__name__)
+
+# Cap query window to prevent unbounded CloudTrail/CloudWatch queries
+MAX_WINDOW = datetime.timedelta(days=7)
 
 
 @celery_app.task
@@ -34,21 +41,24 @@ def monitor_active_canaries():
                 
                 end_time = datetime.datetime.utcnow()
                 
-                # Dynamic interval based on last check
-                if canary.last_checked_at:
-                    start_time = canary.last_checked_at
-                    # Safety buffer: If last check was > 24 hours ago, cap it to avoid huge queries
-                    if (end_time - start_time) > datetime.timedelta(hours=24):
-                        logger.warning(f"Last check for {canary.name} was > 24h ago. Capping to 24h.")
-                        start_time = end_time - datetime.timedelta(hours=24)
+                # Data-anchored checkpoint: query from last known alert
+                # The window only advances when we actually detect new events.
+                latest_alert = db.query(Alert).filter(
+                    Alert.canary_id == canary.id
+                ).order_by(Alert.timestamp.desc()).first()
+                
+                if latest_alert:
+                    start_time = latest_alert.timestamp
                 else:
-                    # Default for new canaries
-                    start_time = end_time - datetime.timedelta(minutes=60)
+                    start_time = canary.created_at or (end_time - datetime.timedelta(hours=1))
+                
+                # Cap at MAX_WINDOW to bound query size
+                if (end_time - start_time) > MAX_WINDOW:
+                    start_time = end_time - MAX_WINDOW
                 
                 alerts = monitor.check(canary, start_time, end_time)
 
-
-                # Update checkpoint
+                # Update last_checked_at for status display
                 canary.last_checked_at = end_time
                 db.commit()
                 
