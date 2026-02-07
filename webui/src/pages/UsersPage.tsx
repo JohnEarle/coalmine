@@ -25,7 +25,7 @@ export default function UsersPage() {
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
     const [showCreateModal, setShowCreateModal] = useState(false)
-    const { user: currentUser } = useAuth()
+    const { hasRole } = useAuth()
     const confirm = useConfirm()
 
     // Form state for new user
@@ -170,7 +170,7 @@ export default function UsersPage() {
                     </h1>
                     <p className="page-description">Manage user accounts and roles</p>
                 </div>
-                {currentUser?.role === 'admin' && (
+                {hasRole('admin') && (
                     <button
                         className="btn btn-primary"
                         onClick={() => setShowCreateModal(true)}
