@@ -42,3 +42,54 @@ class ResourceManager(ABC):
             env_obj: The Account ORM object.
         """
         pass
+
+    def resolve_env_config(self, account: Any, exec_env: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+        """
+        Extracts environment configuration from the Account object.
+
+        Args:
+            account: The Account ORM object.
+            exec_env: Optional dictionary of environment variables (e.g. OS environ).
+
+        Returns:
+            Dict[str, Any]: Configuration dictionary (e.g., project_id, aws_region).
+        """
+        env_conf = {}
+        if account:
+            cred = account.credential
+            if cred and cred.secrets:
+                # AWS Region Extraction
+                region = (cred.secrets.get("region") or
+                         cred.secrets.get("aws_region") or
+                         cred.secrets.get("AWS_REGION"))
+                if region:
+                    env_conf["aws_region"] = region
+
+                # GCP Project ID Extraction
+                if "project_id" in cred.secrets:
+                    env_conf["project_id"] = cred.secrets["project_id"]
+
+            # Fallback for GCP project_id from Account ID
+            if "project_id" not in env_conf and account.account_id:
+                env_conf["project_id"] = account.account_id
+
+        # Fallback for GCP project_id from Execution Environment
+        if exec_env:
+            if "project_id" not in env_conf and "GOOGLE_CLOUD_PROJECT" in exec_env:
+                env_conf["project_id"] = exec_env["GOOGLE_CLOUD_PROJECT"]
+
+        return env_conf
+
+    def validate(self, account: Any, module_params: Optional[Dict[str, Any]] = None, logging_resource: Optional[Any] = None) -> None:
+        """
+        Validate the resource configuration before creation.
+
+        Args:
+            account: The Account ORM object.
+            module_params: The module parameters.
+            logging_resource: The LoggingResource ORM object (optional).
+
+        Raises:
+            ValueError: If validation fails.
+        """
+        pass

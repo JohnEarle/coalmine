@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from .base import ResourceManager
 from ..logging_utils import _apply_logging_with_canaries
 from ..models import LoggingProviderType
@@ -23,3 +23,9 @@ class AwsBucketHandler(ResourceManager):
         if log_resource and log_resource.provider_type == LoggingProviderType.AWS_CLOUDTRAIL:
             _apply_logging_with_canaries(log_resource)
 
+    def validate(self, account: Any, module_params: Optional[Dict[str, Any]] = None, logging_resource: Optional[Any] = None) -> None:
+        if not account or not account.credential or account.credential.provider != "AWS":
+            raise ValueError("Account provider mismatch: Expected AWS")
+
+        if not logging_resource:
+             raise ValueError("AWS_BUCKET requires a valid logging_resource_id.")

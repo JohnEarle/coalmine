@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from .base import ResourceManager
 
 class AwsIamUserHandler(ResourceManager):
@@ -7,3 +7,7 @@ class AwsIamUserHandler(ResourceManager):
         if module_params:
             vars_dict.update(module_params)
         return vars_dict
+
+    def validate(self, account: Any, module_params: Optional[Dict[str, Any]] = None, logging_resource: Optional[Any] = None) -> None:
+        if not account or not account.credential or account.credential.provider != "AWS":
+            raise ValueError("Account provider mismatch: Expected AWS")
